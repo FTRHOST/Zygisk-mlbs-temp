@@ -1,0 +1,8 @@
+id=zygisk-imgui
+name=Zygisk ImGui Menu
+version=v1.0
+versionCode=1
+author=petwir
+description=An ImGui menu for Zygisk.
+minApi=21
+maxApi=30
