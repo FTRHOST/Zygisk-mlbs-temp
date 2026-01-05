@@ -53,9 +53,10 @@ static void _SaveConfig_Internal(GlobalState& state) {
     }
     
     // The OS should create the parent /data/data/pkg.name/ directory. We just ensure 'files' exists.
+    __android_log_print(ANDROID_LOG_INFO, "MLBS_CONFIG", "Ensuring directory exists: %s", filesDir.c_str());
     if (mkdir(filesDir.c_str(), 0777) != 0 && errno != EEXIST) {
         __android_log_print(ANDROID_LOG_ERROR, "MLBS_CONFIG", "Failed to create directory %s. Error: %s", filesDir.c_str(), strerror(errno));
-        return;
+        // We continue anyway, maybe the file can still be opened
     }
 
     std::string configPath = getDynamicConfigPath();

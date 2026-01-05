@@ -28,18 +28,7 @@ static std::string getPackageName() {
 }
 
 std::string getDynamicFilesDir() {
-    static std::string files_dir_cache; // Cache the result so we don't read procfs every time
-    if (!files_dir_cache.empty()) {
-        return files_dir_cache;
-    }
-
-    std::string pkgName = getPackageName();
-    if (!pkgName.empty()) {
-        // Use the accessible external storage path as requested
-        files_dir_cache = "/storage/emulated/0/Android/data/" + pkgName + "/files";
-        return files_dir_cache;
-    }
-    return ""; // Return empty on failure
+    return "/data/user/0/com.mobile.legends/files";
 }
 
 
