@@ -32,6 +32,7 @@
 #include "touch.h"
 
 static bool                 g_IsSetup = false;
+static bool                 g_IsGameReady = false;
 static std::string          g_IniFileName = "";
 static utils::module_info   g_TargetModule{};
 
@@ -77,7 +78,9 @@ EGLBoolean hook_eglSwapBuffers(EGLDisplay dpy, EGLSurface surface) {
     ImGui::NewFrame();
 
     ImGui::ShowDemoWindow();
-OnTouchEvent();  
+    if (g_IsGameReady) {
+        OnTouchEvent();
+    }
     ImGui::EndFrame();
     ImGui::Render();
     glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
@@ -92,9 +95,9 @@ void hack_start(const char *_game_data_dir) {
         g_TargetModule = utils::find_module(TargetLibName);
     } while (g_TargetModule.size <= 0);
     LOGI("%s: %p - %p",TargetLibName, g_TargetModule.start_address, g_TargetModule.end_address);
-Il2CppAttach(TargetLibName);
-    // TODO: hooking/patching here
-    
+    Il2CppAttach(TargetLibName);
+    g_IsGameReady = true;
+    // Hooking and patching are handled in hook_eglSwapBuffers (ImGui) and OnTouchEvent (Input)
 }
 
 void hack_prepare(const char *_game_data_dir) {
@@ -102,8 +105,7 @@ void hack_prepare(const char *_game_data_dir) {
     int api_level = utils::get_android_api_level();
     LOGI("api level: %d", api_level);
     g_IniFileName = std::string(_game_data_dir) + "/files/imgui.ini";
-    sleep(5);
-Il2CppAttach(TargetLibName);
+
     void *sym_input = DobbySymbolResolver("/system/lib/libinput.so", "_ZN7android13InputConsumer21initializeMotionEventEPNS_11MotionEventEPKNS_12InputMessageE");
     if (NULL != sym_input){
         DobbyHook((void *)sym_input, (dobby_dummy_func_t) myInput, (dobby_dummy_func_t*)&origInput);

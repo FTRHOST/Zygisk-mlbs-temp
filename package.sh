@@ -15,7 +15,7 @@ cp app/src/main/assets/module.prop build/zygisk_module/
 # Copy and rename native libraries
 for abi in app/build/intermediates/stripped_native_libs/release/out/lib/*; do
     abi_name=$(basename "$abi")
-    cp "$abi/libAkSoundEngine+.so" "build/zygisk_module/zygisk/$abi_name.so"
+    cp "$abi/libzygisk_mlbs.so" "build/zygisk_module/zygisk/$abi_name.so"
 done
 
 # Create installer scripts

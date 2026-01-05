@@ -11,7 +11,7 @@ include $(PREBUILT_STATIC_LIBRARY)
 
 include $(CLEAR_VARS)
 
-LOCAL_MODULE            := libAkSoundEngine+
+LOCAL_MODULE            := libzygisk_mlbs
 LOCAL_CFLAGS            := -Wno-error=format-security -fvisibility=hidden -ffunction-sections -fdata-sections -w
 LOCAL_CFLAGS            += -fno-rtti -fno-exceptions -fpermissive
 LOCAL_CPPFLAGS          := -Wno-error=format-security -fvisibility=hidden -ffunction-sections -fdata-sections -w -Werror -s -std=c++17
@@ -21,7 +21,9 @@ LOCAL_ARM_MODE          := arm
 LOCAL_LDLIBS            := -llog -landroid -lEGL -lGLESv3 -lGLESv2 -lGLESv1_CM -lz
 
 LOCAL_C_INCLUDES        += $(LOCAL_PATH)
+LOCAL_C_INCLUDES        += $(LOCAL_PATH)/include
 
+# Core Source Files
 LOCAL_SRC_FILES := imgui/imgui.cpp \
 imgui/imgui_demo.cpp \
 imgui/imgui_draw.cpp \
