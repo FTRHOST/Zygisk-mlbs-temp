@@ -44,6 +44,7 @@ class MyModule : public zygisk::ModuleBase {
 public:
     void onLoad(Api *api, JNIEnv *env) override {
         envs = env;
+        LOGI("Zygisk MLBS Module Loaded");
     }
     void preAppSpecialize(AppSpecializeArgs *args) override {
         if (!args || !args->nice_name) {

@@ -1,8 +1,8 @@
-id=zygisk-imgui
-name=Zygisk ImGui Menu
+id=zygisk_mlbs
+name=Zygisk MLBS
 version=v1.0
 versionCode=1
-author=petwir
-description=An ImGui menu for Zygisk.
+author=petwir (migrated)
+description=MLBS cheat menu migrated to Zygisk.
 minApi=21
 maxApi=30
