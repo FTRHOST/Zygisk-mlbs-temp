@@ -13,9 +13,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    # Izin 'write' diperlukan agar bot bisa membuat Release
+    permissions:
+      contents: write
+
     steps:
     - uses: actions/checkout@v4
 
+    # PERBAIKAN: Menggunakan JDK 17 (Wajib untuk Android SDK Tools terbaru)
     - name: set up JDK 17
       uses: actions/setup-java@v3
       with:
@@ -35,15 +40,28 @@ jobs:
     - name: Build with Gradle
       run: ./package.sh
 
+    # Upload file zip ke menu Actions (Artifacts)
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: Zygisk-MLBS
         path: build/Zygisk-MLBS.zip
 
-    - name: Release
+    # SKENARIO 1: Rilis Stable (Jalan jika kamu push tag seperti v1.0)
+    - name: Release Stable
       if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v1
       with:
         files: build/Zygisk-MLBS.zip
         generate_release_notes: true
+
+    # SKENARIO 2: Rilis Otomatis / Nightly (Jalan setiap push ke main/master)
+    - name: Update Nightly Release
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      uses: softprops/action-gh-release@v1
+      with:
+        files: build/Zygisk-MLBS.zip
+        name: Nightly Build
+        tag_name: nightly
+        prerelease: true
+        body: "Build otomatis terbaru dari kode terkini (Nightly)."
