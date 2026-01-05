@@ -6,7 +6,6 @@
 #include "include/httplib.h"
 #include <android/log.h>
 #include "include/nlohmann/json.hpp"
-#include "PanelHTML.h" 
 #include "ConfigManager.h"
 #include "feature/BattleData.h"
 
@@ -296,11 +295,6 @@ void RunServerLoop() {
         res.set_header("Access-Control-Allow-Headers", "Content-Type");
         res.set_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
         res.status = 204;
-    });
-
-    // Endpoint untuk menyajikan panel HTML dari string yang disematkan
-    svr->Get("/panel", [](const httplib::Request &, httplib::Response &res) {
-        res.set_content(panel_html_content, "text/html");
     });
     
     is_running = true;
