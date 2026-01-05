@@ -10,7 +10,7 @@ Repository ini adalah template mod menu untuk game Android (khususnya yang berba
 ## Cara Menggunakan
 1. **Clone Repository:**
    ```bash
-   git clone <repository_url>
+   git clone https://github.com/FTRHOST/Zygisk-mlbs-temp.git
    ```
 2. **Konfigurasi Game Target:**
    - Buka `app/src/main/jni/game.h` (jika ada) atau `main.cpp`.
@@ -18,13 +18,13 @@ Repository ini adalah template mod menu untuk game Android (khususnya yang berba
    - Ubah `TargetLibName` di `hack.cpp` ke nama library game utama (misalnya `libil2cpp.so` atau `libUE4.so`).
 
 3. **Build:**
-   - Buka project di Android Studio.
-   - Build APK (Debug atau Release).
-   - Install APK yang dihasilkan ke perangkat Android Anda.
+   - Buka project di Android Studio atau NDK.
+   - Build module dengan menjalankan script ./package.sh.
+   - Install module yang dihasilkan ke perangkat Android Anda.
 
 4. **Aktifkan Modul:**
-   - APK ini sebenarnya bertindak sebagai installer/host untuk modul Zygisk.
-   - Setelah install, mungkin perlu reboot atau ikuti instruksi spesifik Zygisk (biasanya modul akan muncul di daftar modul Magisk jika dikemas dengan benar, atau aplikasi ini menginjeksikan dirinya sendiri). *Catatan: Template ini menggunakan pendekatan Zygisk module, pastikan Anda memahami cara load module Zygisk.*
+   - Instal hasil build untuk modul Zygisk.
+   - Setelah install, mungkin perlu reboot atau ikuti instruksi spesifik Zygisk (biasanya modul akan muncul di daftar modul Magisk jika dikemas dengan benar). *Catatan: Template ini menggunakan pendekatan Zygisk module, pastikan Anda memahami cara load module Zygisk.*
 
 ## Struktur Folder Utama
 - `app/src/main/jni/`: Berisi semua kode source C++.
