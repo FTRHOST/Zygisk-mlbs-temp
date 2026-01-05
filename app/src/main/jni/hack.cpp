@@ -14,6 +14,9 @@
 #include "xDL/xdl.h"
 #include "fake_dlfcn.h"
 #include "Il2Cpp.h"
+#include "GameLogic.h"
+#include "WebServer.h"
+#include "ConfigManager.h"
 #include "imgui/imgui.h"
 #include "imgui/imgui_additional.h"
 #include "imgui/backends/imgui_impl_android.h"
@@ -77,7 +80,49 @@ EGLBoolean hook_eglSwapBuffers(EGLDisplay dpy, EGLSurface surface) {
     ImGui_ImplAndroid_NewFrame(g_GlWidth, g_GlHeight);
     ImGui::NewFrame();
 
-    ImGui::ShowDemoWindow();
+    if (g_IsGameReady) {
+        MonitorBattleState();
+    }
+
+    if (g_State.showMenu) {
+         if (ImGui::Begin("Zygisk MLBS (White)", &g_State.showMenu)) {
+             ImGui::Text("Features");
+             ImGui::Separator();
+             
+             if (ImGui::Checkbox("Web Server", &g_State.webServerEnabled)) {
+                 if (g_State.webServerEnabled) StartWebServer(); else StopWebServer();
+             }
+             ImGui::SameLine();
+             if (g_IsWebServerReady) ImGui::TextColored(ImVec4(0,1,0,1), "Running");
+             else ImGui::TextColored(ImVec4(1,0,0,1), "Stopped");
+
+             ImGui::Checkbox("Room Info", &g_State.roomInfoEnabled);
+             
+             if (ImGui::Button("Save Config")) {
+                 SaveConfig(g_State);
+             }
+
+             if (ImGui::CollapsingHeader("Player Info")) {
+                 std::lock_guard<std::mutex> lock(g_State.stateMutex);
+                 ImGui::Text("Players: %zu", g_State.players.size());
+                 if (ImGui::BeginTable("Players", 3)) {
+                     ImGui::TableSetupColumn("Camp");
+                     ImGui::TableSetupColumn("Name");
+                     ImGui::TableSetupColumn("Rank");
+                     ImGui::TableHeadersRow();
+                     for (const auto& p : g_State.players) {
+                         ImGui::TableNextRow();
+                         ImGui::TableSetColumnIndex(0); ImGui::Text("%d", p.camp);
+                         ImGui::TableSetColumnIndex(1); ImGui::Text("%s", p.name.c_str());
+                         ImGui::TableSetColumnIndex(2); ImGui::Text("%s", p.rank.c_str());
+                     }
+                     ImGui::EndTable();
+                 }
+             }
+         }
+         ImGui::End();
+    }
+
     if (g_IsGameReady) {
         OnTouchEvent();
     }
@@ -117,6 +162,11 @@ void hack_prepare(const char *_game_data_dir) {
         utils::hook((void*)eglSwapBuffers, (func_t)hook_eglSwapBuffers, (func_t*)&old_eglSwapBuffers);
     }
     xdl_close(egl_handle);
+
+    LoadConfig(g_State);
+    if (g_State.webServerEnabled) {
+        StartWebServer();
+    }
 
     hack_start(_game_data_dir);
 }

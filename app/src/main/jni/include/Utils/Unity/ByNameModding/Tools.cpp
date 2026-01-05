@@ -16,11 +16,11 @@
 
 pid_t target_pid = -1;
 
-ssize_t process_v(pid_t __pid, const struct iovec *__local_iov, unsigned long __local_iov_count, const struct iovec *__remote_iov, unsigned long __remote_iov_count, unsigned long __flags, bool iswrite) {
+static ssize_t process_v(pid_t __pid, const struct iovec *__local_iov, unsigned long __local_iov_count, const struct iovec *__remote_iov, unsigned long __remote_iov_count, unsigned long __flags, bool iswrite) {
     return syscall((iswrite ? process_vm_writev_syscall : process_vm_readv_syscall), __pid, __local_iov, __local_iov_count, __remote_iov, __remote_iov_count, __flags);
 }
 
-bool pvm(void *address, void *buffer, size_t size, bool write = false) {
+static bool pvm(void *address, void *buffer, size_t size, bool write = false) {
     struct iovec local[1];
     struct iovec remote[1];
 

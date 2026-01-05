@@ -22,6 +22,9 @@ LOCAL_LDLIBS            := -llog -landroid -lEGL -lGLESv3 -lGLESv2 -lGLESv1_CM -
 
 LOCAL_C_INCLUDES        += $(LOCAL_PATH)
 LOCAL_C_INCLUDES        += $(LOCAL_PATH)/include
+LOCAL_C_INCLUDES        += $(LOCAL_PATH)/include/Utils
+LOCAL_C_INCLUDES        += $(LOCAL_PATH)/include/Utils/Unity
+LOCAL_C_INCLUDES        += $(LOCAL_PATH)/imgui
 
 # Core Source Files
 LOCAL_SRC_FILES := imgui/imgui.cpp \
@@ -47,7 +50,12 @@ fake_dlfcn.cpp \
 Il2Cpp.cpp \
 utils.cpp \
 hack.cpp \
-main.cpp
+main.cpp \
+WebServer.cpp \
+ConfigManager.cpp \
+PathManager.cpp \
+GameLogic.cpp \
+include/Utils/Unity/ByNameModding/Tools.cpp
 
 LOCAL_STATIC_LIBRARIES  := libdobby
 LOCAL_CPP_FEATURES     := exceptions
