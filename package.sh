@@ -43,5 +43,5 @@ exit 0
 echo "#MAGISK" > build/zygisk_module/META-INF/com/google/android/updater-script
 
 # Zip the module
-(cd build/zygisk_module && zip -r ../Zygisk-ImGui-Menu.zip .)
-echo "Zygisk module created at build/Zygisk-ImGui-Menu.zip"
+(cd build/zygisk_module && zip -r ../Zygisk-MLBS.zip .)
+echo "Zygisk module created at build/Zygisk-MLBS.zip"
