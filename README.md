@@ -1,4 +1,4 @@
-# Android Mod Menu Template (ImGui + Zygisk)
+# Android Mod Menu Template (ImGui + Zygisk) (MLBS)
 
 ![GitHub](https://img.shields.io/github/license/LGLTeam/Android-Mod-Menu?style=flat-square)
 
