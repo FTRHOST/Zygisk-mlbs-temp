@@ -84,7 +84,7 @@ void UpdatePlayerInfo() {
         #define READ_STRING(target, offset) \
             if(offset > 0) { \
                 MonoString* str = *(MonoString**)((uintptr_t)pawn + offset); \
-                if(str) target = str->toString(); \
+                if(str) target = str->CString(); \
             }
         
         READ_FIELD(p.bAutoConditionNew, bool, SystemData_RoomData_bAutoConditionNew);

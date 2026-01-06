@@ -3,7 +3,6 @@
 #include "../Include.h"
 #include <vector>
 #include <string>
-#include "../struct/MonoString.h"
 
 #pragma once
 
@@ -374,7 +373,7 @@ struct SystemData_RoomData {
 
     std::string GetName() {
         MonoString* ms = *(MonoString**)((uint64_t)this + 0x40);
-        if (ms) return ms->toString();
+        if (ms) return ms->CString();
         return "";
     }
 
