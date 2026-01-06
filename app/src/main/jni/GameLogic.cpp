@@ -6,18 +6,18 @@
 #include <vector>
 #include <string>
 #include <mutex>
+#include <sstream>
 
 #include "Include.h"
 #include "Il2Cpp/il2cpp_dump.h"
 #include "feature/GameClass.h"
 #include "feature/ToString.h"
 #include "feature/ToString2.h"
-#include "WebServer.h"
-#include "ConfigManager.h"
+#include "IpcServer.h"
+#include "obfuscate.h"
 
 // Define Global State
 GlobalState g_State;
-bool g_IsWebServerReady = false;
 
 // Timer variables
 std::chrono::steady_clock::time_point g_battleStartTime;
@@ -29,7 +29,7 @@ BattleStats GetBattleStats() {
     BattleStats stats = {}; 
     void* showFightDataInstance = nullptr;
 
-    Il2CppGetStaticFieldValue("Assembly-CSharp.dll", "", "ShowFightData", "Instance", &showFightDataInstance);
+    Il2CppGetStaticFieldValue(OBFUSCATE("Assembly-CSharp.dll"), "", OBFUSCATE("ShowFightData"), OBFUSCATE("Instance"), &showFightDataInstance);
 
     if (showFightDataInstance) {
         auto* pData = static_cast<ShowFightDataTiny_Layout*>(showFightDataInstance); 
@@ -188,7 +188,7 @@ void UpdatePlayerInfo() {
 
 void MonitorBattleState() {
     void *logicBattleManager = nullptr;
-    Il2CppGetStaticFieldValue("Assembly-CSharp.dll", "", "LogicBattleManager", "Instance", &logicBattleManager);
+    Il2CppGetStaticFieldValue(OBFUSCATE("Assembly-CSharp.dll"), "", OBFUSCATE("LogicBattleManager"), OBFUSCATE("Instance"), &logicBattleManager);
     if (!logicBattleManager) return;
 
     int currentBattleState = GetBattleState(logicBattleManager);
@@ -211,6 +211,31 @@ void MonitorBattleState() {
     if (currentBattleState == 2 || currentBattleState == 3) {
         if (g_State.roomInfoEnabled) {
             UpdatePlayerInfo();
+
+            // Serialize and Broadcast
+            std::stringstream ss;
+            ss << "{";
+            ss << "\"state\":" << currentBattleState << ",";
+            ss << "\"players\":[";
+            {
+                std::lock_guard<std::mutex> lock(g_State.stateMutex);
+                for (size_t i = 0; i < g_State.players.size(); ++i) {
+                    const auto& p = g_State.players[i];
+                    ss << "{\"name\":\"" << p.name << "\",";
+                    ss << "\"rank\":\"" << p.rank << "\",";
+                    ss << "\"hero\":\"" << p.heroName << "\",";
+                    ss << "\"camp\":" << p.camp << ",";
+                    ss << "\"uid\":\"" << p.uid << "\",";
+                    ss << "\"spell\":\"" << p.spell << "\",";
+                    ss << "\"heroId\":" << p.heroId << ",";
+                    ss << "\"spellId\":" << p.spellId << ",";
+                    ss << "\"rankLevel\":" << p.rankLevel;
+                    ss << "}";
+                    if (i < g_State.players.size() - 1) ss << ",";
+                }
+            }
+            ss << "]}";
+            BroadcastData(ss.str());
         }
     }
 }
