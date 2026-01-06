@@ -84,7 +84,7 @@ void UpdatePlayerInfo() {
         #define READ_STRING(target, offset) \
             if(offset > 0) { \
                 MonoString* str = *(MonoString**)((uintptr_t)pawn + offset); \
-                if(str) target = str->CString(); \
+                if(str) target = str->toString(); \
             }
         
         READ_FIELD(p.bAutoConditionNew, bool, SystemData_RoomData_bAutoConditionNew);
@@ -226,22 +226,47 @@ void hook_UIRankHero_Update(void* instance) {
     if (instance) {
         UIRankHero* ui = (UIRankHero*)instance;
 
-        // Helper lambdas to extract list
-        auto extractList = [](Il2CppList_UInt* list) -> std::vector<int> {
-            if (list) return list->GetAllItems();
-            return {};
-        };
-
-        std::vector<int> bans = extractList(ui->GetBanList());
-        std::vector<int> picks = extractList(ui->GetPickList());
+        // Get Timer (Existing Logic)
         int timer = ui->GetTimer();
+
+        // Get RankHeroMgr Instance
+        void* rankHeroMgrInstance = nullptr;
+        Il2CppGetStaticFieldValue("Assembly-CSharp.dll", "", "RankHeroMgr", "Instance", &rankHeroMgrInstance);
+
+        RankHeroMgr* mgr = (RankHeroMgr*)rankHeroMgrInstance;
+
+        std::vector<BanPickPlayer> currentPlayers;
+        int currentState = 0;
+
+        if (mgr) {
+            currentState = mgr->GetState();
+
+            auto playerList = mgr->GetPlayerList();
+            if (playerList) {
+                auto rooms = playerList->GetAllItems();
+                for (auto* roomData : rooms) {
+                    if (!roomData) continue;
+
+                    BanPickPlayer bpPlayer;
+                    bpPlayer.uid = roomData->GetUid();
+                    bpPlayer.name = roomData->GetName();
+                    bpPlayer.camp = roomData->GetCamp();
+                    bpPlayer.role = roomData->GetRole();
+                    bpPlayer.spell = roomData->GetSpell();
+                    bpPlayer.ban = roomData->GetBan();
+                    bpPlayer.pick = roomData->GetPick();
+
+                    currentPlayers.push_back(bpPlayer);
+                }
+            }
+        }
 
         // Update Global State safely
         {
             std::lock_guard<std::mutex> lock(g_State.stateMutex);
-            g_State.banList = bans;
-            g_State.pickList = picks;
+            g_State.bpState = currentState;
             g_State.bpTimer = timer;
+            g_State.bpPlayers = currentPlayers;
         }
     }
 }

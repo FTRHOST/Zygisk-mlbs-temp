@@ -119,6 +119,17 @@ struct PlayerData {
     int rankLevel;
 };
 
+// Struct data pemain untuk Ban/Pick
+struct BanPickPlayer {
+    uint64_t uid;
+    std::string name;
+    int camp;
+    int role;
+    int spell;
+    uint32_t ban;
+    uint32_t pick;
+};
+
 // State global aplikasi
 struct GlobalState {
     std::mutex stateMutex;
@@ -129,9 +140,9 @@ struct GlobalState {
     std::vector<PlayerData> players;
 
     // Ban/Pick Data
-    std::vector<int> banList;
-    std::vector<int> pickList;
+    int bpState = 0;
     int bpTimer = 0;
+    std::vector<BanPickPlayer> bpPlayers;
 };
 
 // Deklarasi instance global

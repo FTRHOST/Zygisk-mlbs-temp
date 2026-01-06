@@ -2,6 +2,8 @@
 
 #include "../Include.h"
 #include <vector>
+#include <string>
+#include "../struct/MonoString.h"
 
 #pragma once
 
@@ -329,61 +331,82 @@ void StopMD5Check(){
 #define UIChooseHero_CheckHeroDefaultSkin (uintptr_t) Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE(""), OBFUSCATE("UIChooseHero"), OBFUSCATE("CheckHeroDefaultSkin"),1)
 
 // =============================================================
-//  Ban/Pick Integration (Structs & Offsets)
+//  Ban/Pick Integration (Updated Structures)
 // =============================================================
 
-// Il2Cpp List Wrapper
-struct Il2CppList_UInt {
+// Helper for Il2Cpp Lists (Generic)
+template <typename T>
+struct Il2CppList {
     void* klass;
     void* monitor;
     void* array_ptr; // Pointer to Il2CppArray
     int32_t size;    // Current size
     int32_t capacity;
 
-    std::vector<int> GetAllItems() {
-        std::vector<int> results;
+    std::vector<T> GetAllItems() {
+        std::vector<T> results;
         if (!array_ptr || size <= 0) return results;
 
         // Il2CppArray header is usually 32 bytes on 64-bit (klass + monitor + bounds + length)
         // Data starts after length.
-        uint32_t* raw_data = (uint32_t*)((uint64_t)array_ptr + 32);
+        void** raw_data = (void**)((uint64_t)array_ptr + 32);
 
         for(int i=0; i<size; i++) {
-            results.push_back((int)raw_data[i]);
+            results.push_back((T)raw_data[i]);
         }
         return results;
     }
 };
 
-// Inner class UIRankHero.TimeShow
-struct UIRankHero_TimeShow {
-    // Fields based on dump:
-    // ...
-    // private System.Int32 _stateTimeRemain; // 0x74
+// SystemData.RoomData Wrapper
+struct SystemData_RoomData {
+    // Offsets
+    // ulong lUid; // 0x20
+    // int iCamp; // 0x30
+    // MonoString* _sName; // 0x40
+    // uint heroid; // 0x4c (Pick)
+    // int summonSkillId; // 0x64 (Spell)
+    // uint banHero; // 0xb0
+    // int iRoad; // 0x140 (Role)
 
+    uint64_t GetUid() { return *(uint64_t*)((uint64_t)this + 0x20); }
+    int GetCamp() { return *(int*)((uint64_t)this + 0x30); }
+
+    std::string GetName() {
+        MonoString* ms = *(MonoString**)((uint64_t)this + 0x40);
+        if (ms) return ms->toString();
+        return "";
+    }
+
+    uint32_t GetPick() { return *(uint32_t*)((uint64_t)this + 0x4c); }
+    int GetSpell() { return *(int*)((uint64_t)this + 0x64); }
+    uint32_t GetBan() { return *(uint32_t*)((uint64_t)this + 0xb0); }
+    int GetRole() { return *(int*)((uint64_t)this + 0x140); }
+};
+
+// RankHeroMgr Wrapper
+struct RankHeroMgr {
+    // Offset 0x10: ChooseState curState
+    // Offset 0x48: List<SystemData.RoomData> m_PlayerList
+
+    int GetState() { return *(int*)((uint64_t)this + 0x10); }
+
+    Il2CppList<SystemData_RoomData*>* GetPlayerList() {
+        return *(Il2CppList<SystemData_RoomData*>**)((uint64_t)this + 0x48);
+    }
+};
+
+// UIRankHero & TimeShow
+struct UIRankHero_TimeShow {
     int GetTimeRemain() {
         return *(int*)((uint64_t)this + 0x74);
     }
 };
 
-// Class UIRankHero
 #define UIRankHero_Update (uintptr_t) Il2CppGetMethodOffset("Assembly-CSharp.dll", "", "UIRankHero", "Update")
 
 class UIRankHero {
 public:
-    // Offsets from dump.cs
-    // private System.Collections.Generic.List<System.UInt32> banOrder; // 0x1d8
-    // private System.Collections.Generic.List<System.UInt32> pickOrder; // 0x1e0
-    // private UIRankHero.TimeShow timeShow; // 0x230
-
-    Il2CppList_UInt* GetBanList() {
-        return *(Il2CppList_UInt**)((uint64_t)this + 0x1d8);
-    }
-
-    Il2CppList_UInt* GetPickList() {
-        return *(Il2CppList_UInt**)((uint64_t)this + 0x1e0);
-    }
-
     UIRankHero_TimeShow* GetTimeShow() {
         return *(UIRankHero_TimeShow**)((uint64_t)this + 0x230);
     }

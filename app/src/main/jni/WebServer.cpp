@@ -230,10 +230,26 @@ std::string BanPickToJson() {
     __android_log_print(ANDROID_LOG_INFO, "MLBS_WEB_SERVER", "BanPickToJson: Lock acquired.");
 
     nlohmann::json j;
-    j["state"] = "banning"; // Bisa dibuat dinamis jika kita track state lebih detail
-    j["timer"] = g_State.bpTimer;
-    j["bans"] = g_State.banList;
-    j["picks"] = g_State.pickList;
+    j["status"] = "success";
+
+    nlohmann::json data;
+    data["state"] = g_State.bpState;
+    data["timer"] = g_State.bpTimer;
+
+    data["players"] = nlohmann::json::array();
+    for (const auto& p : g_State.bpPlayers) {
+        data["players"].push_back({
+            {"uid", p.uid},
+            {"name", p.name},
+            {"camp", p.camp},
+            {"role", p.role},
+            {"spell", p.spell},
+            {"ban", p.ban},
+            {"pick", p.pick}
+        });
+    }
+
+    j["data"] = data;
 
     return j.dump(4);
 }
