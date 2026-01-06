@@ -223,6 +223,21 @@ std::string BattleDataToJson() {
     return j.dump(4);
 }
 
+// Fungsi untuk serialisasi data Ban/Pick
+std::string BanPickToJson() {
+    __android_log_print(ANDROID_LOG_INFO, "MLBS_WEB_SERVER", "BanPickToJson: Acquiring lock...");
+    std::lock_guard<std::mutex> lock(g_State.stateMutex);
+    __android_log_print(ANDROID_LOG_INFO, "MLBS_WEB_SERVER", "BanPickToJson: Lock acquired.");
+
+    nlohmann::json j;
+    j["state"] = "banning"; // Bisa dibuat dinamis jika kita track state lebih detail
+    j["timer"] = g_State.bpTimer;
+    j["bans"] = g_State.banList;
+    j["picks"] = g_State.pickList;
+
+    return j.dump(4);
+}
+
 
 // Fungsi untuk menjalankan server di thread terpisah
 void RunServerLoop() {
@@ -248,6 +263,14 @@ void RunServerLoop() {
         res.set_header("Access-Control-Allow-Origin", "*");
         res.set_content(BattleDataToJson(), "application/json");
         __android_log_print(ANDROID_LOG_INFO, "MLBS_WEB_SERVER", "/infobattle request handled");
+    });
+
+    // Endpoint baru untuk Ban Pick
+    svr->Get("/banpick", [](const httplib::Request &, httplib::Response &res) {
+        __android_log_print(ANDROID_LOG_INFO, "MLBS_WEB_SERVER", "Received /banpick request");
+        res.set_header("Access-Control-Allow-Origin", "*");
+        res.set_content(BanPickToJson(), "application/json");
+        __android_log_print(ANDROID_LOG_INFO, "MLBS_WEB_SERVER", "/banpick request handled");
     });
 
     // Endpoint baru untuk mendapatkan waktu pertandingan

@@ -14,6 +14,7 @@
 #include "feature/ToString2.h"
 #include "WebServer.h"
 #include "ConfigManager.h"
+#include "dobby/include/dobby.h"
 
 // Define Global State
 GlobalState g_State;
@@ -212,6 +213,46 @@ void MonitorBattleState() {
         if (g_State.roomInfoEnabled) {
             UpdatePlayerInfo();
         }
+    }
+}
+
+// Hook for UIRankHero.Update
+void (*orig_UIRankHero_Update)(void* instance);
+void hook_UIRankHero_Update(void* instance) {
+    if (orig_UIRankHero_Update) {
+        orig_UIRankHero_Update(instance);
+    }
+
+    if (instance) {
+        UIRankHero* ui = (UIRankHero*)instance;
+
+        // Helper lambdas to extract list
+        auto extractList = [](Il2CppList_UInt* list) -> std::vector<int> {
+            if (list) return list->GetAllItems();
+            return {};
+        };
+
+        std::vector<int> bans = extractList(ui->GetBanList());
+        std::vector<int> picks = extractList(ui->GetPickList());
+        int timer = ui->GetTimer();
+
+        // Update Global State safely
+        {
+            std::lock_guard<std::mutex> lock(g_State.stateMutex);
+            g_State.banList = bans;
+            g_State.pickList = picks;
+            g_State.bpTimer = timer;
+        }
+    }
+}
+
+void InitUIRankHeroHook() {
+    void* targetMethod = reinterpret_cast<void*>(UIRankHero_Update);
+    if (targetMethod) {
+        DobbyHook(targetMethod, (dobby_dummy_func_t)hook_UIRankHero_Update, (dobby_dummy_func_t*)&orig_UIRankHero_Update);
+        __android_log_print(ANDROID_LOG_INFO, "MLBS_HOOK", "UIRankHero.Update hooked successfully.");
+    } else {
+        __android_log_print(ANDROID_LOG_ERROR, "MLBS_HOOK", "Failed to find UIRankHero.Update method.");
     }
 }
 

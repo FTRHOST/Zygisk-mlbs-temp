@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Include.h"
+#include <vector>
 
 #pragma once
 
@@ -326,3 +327,70 @@ void StopMD5Check(){
 #define UIRankHero_BRankHeroCanUse (uintptr_t) Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE(""), OBFUSCATE("UIRankHero"), OBFUSCATE("BRankHeroCanUse"), 1)
 #define StarMemberData_ContainSkin (uintptr_t) Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE(""), OBFUSCATE("StarMemberData"), OBFUSCATE("ContainSkin"), 1)
 #define UIChooseHero_CheckHeroDefaultSkin (uintptr_t) Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE(""), OBFUSCATE("UIChooseHero"), OBFUSCATE("CheckHeroDefaultSkin"),1)
+
+// =============================================================
+//  Ban/Pick Integration (Structs & Offsets)
+// =============================================================
+
+// Il2Cpp List Wrapper
+struct Il2CppList_UInt {
+    void* klass;
+    void* monitor;
+    void* array_ptr; // Pointer to Il2CppArray
+    int32_t size;    // Current size
+    int32_t capacity;
+
+    std::vector<int> GetAllItems() {
+        std::vector<int> results;
+        if (!array_ptr || size <= 0) return results;
+
+        // Il2CppArray header is usually 32 bytes on 64-bit (klass + monitor + bounds + length)
+        // Data starts after length.
+        uint32_t* raw_data = (uint32_t*)((uint64_t)array_ptr + 32);
+
+        for(int i=0; i<size; i++) {
+            results.push_back((int)raw_data[i]);
+        }
+        return results;
+    }
+};
+
+// Inner class UIRankHero.TimeShow
+struct UIRankHero_TimeShow {
+    // Fields based on dump:
+    // ...
+    // private System.Int32 _stateTimeRemain; // 0x74
+
+    int GetTimeRemain() {
+        return *(int*)((uint64_t)this + 0x74);
+    }
+};
+
+// Class UIRankHero
+#define UIRankHero_Update (uintptr_t) Il2CppGetMethodOffset("Assembly-CSharp.dll", "", "UIRankHero", "Update")
+
+class UIRankHero {
+public:
+    // Offsets from dump.cs
+    // private System.Collections.Generic.List<System.UInt32> banOrder; // 0x1d8
+    // private System.Collections.Generic.List<System.UInt32> pickOrder; // 0x1e0
+    // private UIRankHero.TimeShow timeShow; // 0x230
+
+    Il2CppList_UInt* GetBanList() {
+        return *(Il2CppList_UInt**)((uint64_t)this + 0x1d8);
+    }
+
+    Il2CppList_UInt* GetPickList() {
+        return *(Il2CppList_UInt**)((uint64_t)this + 0x1e0);
+    }
+
+    UIRankHero_TimeShow* GetTimeShow() {
+        return *(UIRankHero_TimeShow**)((uint64_t)this + 0x230);
+    }
+
+    int GetTimer() {
+        auto ts = GetTimeShow();
+        if (ts) return ts->GetTimeRemain();
+        return 0;
+    }
+};

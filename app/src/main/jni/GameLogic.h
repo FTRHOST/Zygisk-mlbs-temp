@@ -10,3 +10,4 @@ BattleStats GetBattleStats();
 
 // Initialize hooks, offsets, etc.
 void InitGameLogic();
+void InitUIRankHeroHook();

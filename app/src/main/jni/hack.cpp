@@ -141,6 +141,10 @@ void hack_start(const char *_game_data_dir) {
     } while (g_TargetModule.size <= 0);
     LOGI("%s: %p - %p",TargetLibName, g_TargetModule.start_address, g_TargetModule.end_address);
     Il2CppAttach(TargetLibName);
+
+    // Install UIRankHero hook
+    InitUIRankHeroHook();
+
     g_IsGameReady = true;
     // Hooking and patching are handled in hook_eglSwapBuffers (ImGui) and OnTouchEvent (Input)
 }

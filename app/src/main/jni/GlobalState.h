@@ -127,6 +127,11 @@ struct GlobalState {
     bool webServerEnabled = true;
     bool showMenu = true;
     std::vector<PlayerData> players;
+
+    // Ban/Pick Data
+    std::vector<int> banList;
+    std::vector<int> pickList;
+    int bpTimer = 0;
 };
 
 // Deklarasi instance global
