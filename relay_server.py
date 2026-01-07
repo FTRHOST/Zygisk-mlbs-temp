@@ -1,0 +1,160 @@
+import socket
+import json
+import threading
+import time
+from flask import Flask, jsonify, request
+
+# --- KONFIGURASI ---
+SOCKET_NAME = '\0mlbs_ipc'  # Socket Game (Abstract Namespace)
+WEB_PORT = 5000             # Port untuk akses dari PC
+
+app = Flask(__name__)
+
+# Global Store untuk data terakhir dari game
+latest_data = {
+    "status": "waiting_for_game",
+    "last_update": 0,
+    "debug": {},
+    "game_data": {}
+}
+game_socket = None
+
+def connect_to_game():
+    """Mencoba terhubung ke Unix Domain Socket game (Abstract Namespace)"""
+    global game_socket
+    while True:
+        try:
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.connect(SOCKET_NAME)
+            print("[RELAY] Terhubung ke Game Process!")
+            return sock
+        except Exception:
+            print("[RELAY] Menunggu Game aktif... (Pastikan Zygisk modul aktif)")
+            time.sleep(2)
+
+def socket_listener():
+    """Thread khusus untuk mendengar data RAW dari C++"""
+    global latest_data, game_socket
+
+    sock = connect_to_game()
+    game_socket = sock
+    buffer = ""
+
+    while True:
+        try:
+            data = sock.recv(4096)
+            if not data:
+                print("[RELAY] Koneksi game putus via Socket.")
+                sock.close()
+                sock = connect_to_game() # Reconnect
+                game_socket = sock
+                continue
+
+            chunk = data.decode('utf-8', errors='ignore')
+            buffer += chunk
+
+            while '\n' in buffer: # Asumsi C++ kirim dengan delimiter \n
+                msg, buffer = buffer.split('\n', 1)
+                if not msg.strip(): continue
+
+                try:
+                    parsed = json.loads(msg)
+                    # Update global data
+                    latest_data["last_update"] = time.time()
+                    latest_data["status"] = "connected"
+
+                    if parsed.get("type") == "heartbeat":
+                        latest_data["debug"] = parsed.get("debug")
+                        latest_data["game_data"] = parsed.get("data")
+                    elif parsed.get("type") == "log":
+                        print(f"[GAME LOG] {parsed.get('msg')}")
+
+                    # Debug print di terminal HP/Termux
+                    state = latest_data.get('debug', {}).get('game_state', 'N/A')
+                    p_count = len(latest_data.get('game_data', {}).get('players', []))
+                    print(f"\r[LIVE] State: {state} | Players: {p_count} | Bytes: {len(msg)}   ", end="")
+                except json.JSONDecodeError:
+                    print(f"\n[ERR] Bad JSON: {msg[:50]}...")
+                except Exception as e:
+                    print(f"\n[ERR] Process error: {e}")
+
+        except Exception as e:
+            print(f"\n[ERR] Socket Error: {e}")
+            time.sleep(1)
+            try:
+                sock.close()
+            except: pass
+            sock = connect_to_game()
+            game_socket = sock
+
+# --- API ENDPOINTS (Diakses dari PC) ---
+
+@app.route('/api/data', methods=['GET'])
+def get_data():
+    """PC memanggil ini untuk dapat data JSON lengkap"""
+    # Hitung latency sederhana
+    now = time.time()
+    age = now - latest_data["last_update"]
+    latest_data["age_seconds"] = age
+    return jsonify(latest_data)
+
+@app.route('/api/control', methods=['POST'])
+def control_feature():
+    """PC mengirim perintah Start/Stop ke HP"""
+    global game_socket
+    if not request.is_json:
+        return jsonify({"status": "error", "msg": "Body must be JSON"}), 400
+
+    cmd = request.json.get('command')
+    if game_socket and cmd in ['start', 'stop']:
+        msg = f"cmd:{cmd}"
+        try:
+            game_socket.sendall(msg.encode())
+            return jsonify({"status": "sent", "cmd": cmd})
+        except Exception as e:
+            return jsonify({"status": "error", "msg": str(e)}), 500
+
+    return jsonify({"status": "invalid_command_or_socket_closed"}), 400
+
+@app.route('/')
+def index():
+    return """
+    <html>
+    <head><title>MLBS Relay</title></head>
+    <body style="font-family: monospace; background: #222; color: #0f0; padding: 20px;">
+        <h1>MLBS Relay Server Running</h1>
+        <p>Use local PC software to read: <a href="/api/data" style="color: yellow;">/api/data</a></p>
+        <hr>
+        <h3>Control:</h3>
+        <button onclick="sendCmd('start')">START Feature</button>
+        <button onclick="sendCmd('stop')">STOP Feature</button>
+        <div id="resp"></div>
+        <script>
+            function sendCmd(c) {
+                fetch('/api/control', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({command: c})
+                }).then(r=>r.json()).then(d=>document.getElementById('resp').innerText=JSON.stringify(d));
+            }
+        </script>
+    </body>
+    </html>
+    """
+
+if __name__ == "__main__":
+    print("--- MLBS RELAY SERVER ---")
+    print("1. Pastikan script ini berjalan di HP (Termux).")
+    print("2. Pastikan Mod Zygisk sudah aktif di game.")
+
+    # Jalankan listener socket di background thread
+    t = threading.Thread(target=socket_listener)
+    t.daemon = True
+    t.start()
+
+    # Jalankan Web Server
+    print(f"\n[SERVER] Web API berjalan di port {WEB_PORT}")
+    print(f"[SERVER] Akses dari PC: http://[IP_HP_ANDA]:{WEB_PORT}/")
+
+    # Host 0.0.0.0 agar bisa diakses dari perangkat lain di jaringan (WiFi)
+    app.run(host='0.0.0.0', port=WEB_PORT, debug=False)

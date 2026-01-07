@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include <android/log.h>
 #include "obfuscate.h"
+#include "GameLogic.h" // For g_State access
 
 #define TAG "MLBS_IPC"
 
@@ -34,12 +35,69 @@ void SetNonBlocking(int fd) {
     }
 }
 
+void BroadcastData(const std::string& data);
+
+void HandleIncomingCommand(const std::string& cmd) {
+    if (cmd.find("cmd:stop") != std::string::npos) {
+        std::lock_guard<std::mutex> lock(g_State.stateMutex);
+        g_State.roomInfoEnabled = false;
+        BroadcastData("{\"type\":\"log\", \"msg\":\"Feature PAUSED by user\"}");
+    }
+    else if (cmd.find("cmd:start") != std::string::npos) {
+        std::lock_guard<std::mutex> lock(g_State.stateMutex);
+        g_State.roomInfoEnabled = true;
+        BroadcastData("{\"type\":\"log\", \"msg\":\"Feature RESUMED by user\"}");
+    }
+}
+
+void ClientReaderLoop(int client_fd) {
+    char buffer[1024];
+    while (server_running) {
+        // Simple blocking read (or non-blocking with sleep)
+        // Since we are in a thread per client or just one thread, let's use non-blocking + sleep for simplicity
+        // to check server_running, or blocking read if we close socket on stop.
+        // We set O_NONBLOCK earlier, so read will return -1/EAGAIN.
+
+        ssize_t bytes_read = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
+
+        if (bytes_read > 0) {
+            buffer[bytes_read] = '\0';
+            std::string cmd(buffer);
+            HandleIncomingCommand(cmd);
+        } else if (bytes_read == 0) {
+            // Disconnected
+            break;
+        } else {
+            // Error or WouldBlock
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                continue;
+            } else {
+                break;
+            }
+        }
+    }
+
+    // Cleanup client from list
+    close(client_fd);
+    {
+        std::lock_guard<std::mutex> lock(clients_mutex);
+        auto it = std::find(clients.begin(), clients.end(), client_fd);
+        if (it != clients.end()) {
+            clients.erase(it);
+        }
+    }
+}
+
 void HandleClient(int client_fd) {
     SetNonBlocking(client_fd);
     {
         std::lock_guard<std::mutex> lock(clients_mutex);
         clients.push_back(client_fd);
     }
+
+    // Spawn a reader thread for this client
+    std::thread(ClientReaderLoop, client_fd).detach();
 }
 
 void BroadcasterLoop() {
@@ -69,9 +127,15 @@ void BroadcasterLoop() {
                 ssize_t sent = send(fd, msg.c_str(), msg.length(), MSG_NOSIGNAL);
 
                 if (sent < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-                    // Real error, disconnect
-                    close(fd);
-                    it = clients.erase(it);
+                    // Real error, disconnect logic is handled in Reader Loop or here
+                    // If we remove here, Reader Loop might crash or error out.
+                    // Let's assume Reader Loop handles disconnect primarily, but if write fails drastically we can remove.
+                    // For now, let's keep list management simple. If write fails, we'll likely detect it in read loop eventually.
+                    // But to be safe:
+                    // close(fd);
+                    // it = clients.erase(it);
+                    // Actually, let's leave it to Reader Loop to cleanup to avoid double-free race.
+                    ++it;
                 } else {
                     ++it;
                 }
@@ -89,7 +153,6 @@ void ServerLoop() {
     addr.sun_family = AF_UNIX;
 
     // Abstract namespace: first byte is null
-    const char* name = "mlbs_ipc"; // Plain text here, obfuscate in usage if needed, but socket name is local
     // We can obfuscate the name string copy
     const char* obf_name = OBFUSCATE("mlbs_ipc");
     strncpy(addr.sun_path + 1, obf_name, sizeof(addr.sun_path) - 2);
