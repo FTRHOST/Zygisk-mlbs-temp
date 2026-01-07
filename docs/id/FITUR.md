@@ -1,54 +1,48 @@
 # Dokumentasi Fitur
 
-Dokumen ini menjelaskan fitur-fitur yang tersedia dalam mod menu ini, baik fitur standar maupun fitur lanjutan seperti Web Server dan Room Info.
+Dokumen ini menjelaskan fitur yang tersedia di mod ini, dengan fokus pada keamanan dan penyiaran data (broadcasting).
 
-## 1. Floating Mod Menu (ImGui)
-Fitur utama adalah menu melayang (floating menu) yang digambar di atas game menggunakan library **ImGui**.
-- **Akses:** Menu dapat diperkecil/diperbesar (toggle) biasanya dengan menyentuh icon atau tombol tertentu (tergantung konfigurasi input).
-- **Fungsi:** Berisi checkbox dan tombol untuk mengaktifkan cheat/fitur.
-- **Tampilan:**
-  - **Menu "Zygisk MLBS (White)":** Window utama.
-  - **Features:** Bagian untuk mengaktifkan Web Server, Room Info, dan tombol Save Config.
-  - **Player Info:** Bagian collapsible (bisa dilipat) yang menampilkan daftar pemain dalam room saat ini.
+## 1. Arsitektur Stealth (Tersembunyi)
+Berbeda dengan mod menu tradisional, modul ini dirancang agar tidak terlihat.
+- **Tanpa Overlay:** Tidak ada menu atau tombol di layar. Ini menghindari "Deteksi Overlay" dan "Deteksi Input Injection".
+- **Tanpa Port Jaringan:** Modul tidak membuka port TCP/UDP (seperti web server). Ini menghindari deteksi "Port Scanning".
+- **Operasi Latar Belakang:** Modul berjalan diam-diam menempel pada proses game, membaca memori dan mengirim data hanya jika tersedia.
 
-## 2. Web Server (HTTP API)
-Fitur unik ini menjalankan server HTTP lokal di perangkat Android saat game berjalan. Ini memungkinkan perangkat lain (atau browser di HP yang sama) untuk melihat data game secara real-time.
+## 2. IPC Broadcasting (Unix Domain Socket)
+Sebagai pengganti Web Server, mod ini menggunakan **Inter-Process Communication (IPC)** melalui Unix Domain Socket (Abstract Namespace) untuk berbagi data.
 
-- **Cara Mengaktifkan:** Centang "Web Server" di menu.
-- **Status:** Teks "Running" (Hijau) atau "Stopped" (Merah) di menu.
-- **Port:** Server berjalan di port `2626`.
-- **Akses:** Buka browser dan ketik `http://<IP_HP_ANDA>:2626/<endpoint>`.
+- **Nama Socket:** `\0mlbs_ipc` (Abstract namespace, tidak ada file di disk).
+- **Akses:** Anda memerlukan klien khusus untuk membaca data ini.
+- **Verifikasi:** Anda dapat menggunakan skrip `check_mod.py` (membutuhkan Python dan adb/termux) untuk terhubung dan melihat aliran data.
 
-### Endpoint API
-Berikut adalah endpoint yang tersedia untuk mengambil data (JSON format):
+### Format Data
+Modul menyiarkan data JSON yang dipisahkan oleh baris baru (newline).
+Contoh Data:
+```json
+{
+  "state": 2,
+  "players": [
+    {
+      "name": "PlayerName",
+      "rank": "Mythic",
+      "hero": "Layla",
+      "camp": 1
+    }
+  ]
+}
+```
 
-| Endpoint | Deskripsi | Data yang Dikembalikan |
-| :--- | :--- | :--- |
-| `/state` | Status ringkas game. | State battle, status fitur, list pemain (basic). |
-| `/inforoom` | Info detail Room/Lobby. | Data lengkap setiap pemain (ID, Rank, Hero, Skin, dll). |
-| `/infobattle` | Statistik pertarungan real-time. | Kill, Gold, EXP, Tower Kills, Lord/Turtle Kills untuk kedua tim. |
-| `/timebattle` | Durasi pertandingan. | Waktu berjalan dalam detik. |
-| `/config` | Konfigurasi (POST). | Mengubah setting menu via HTTP request. |
+## 3. Info Room & Info Pemain
+Fitur ini membaca memori game untuk mendapatkan informasi rinci tentang pemain lain dalam pertandingan atau lobi.
 
-## 3. Room Info & Player Info
-Fitur ini membaca memori game untuk mendapatkan informasi detail tentang pemain lain di dalam pertandingan atau lobby.
+- **Data yang Disediakan:** Nama, Rank, Hero, Spell, Level Rank, dll.
+- **Penggunaan:** Jalankan `check_mod.py` atau alat overlay eksternal kustom Anda untuk melihat data ini secara real-time.
 
-- **Tampilan di Menu:** Tabel berisi Camp (Tim), Nama, dan Rank.
-- **Data Detail (via Web Server):**
-  - **Basic:** Nama, UID, Rank, Hero, Spell.
-  - **Advanced:** Win rate (implied), Hero Power, MMR, Skin yang dipakai, Negara asal, dll.
-  - **Manfaat:** Mengetahui kekuatan musuh sebelum pertandingan dimulai (jika data tersedia di fase draft pick).
-
-## 4. Battle Stats (Statistik Pertarungan)
-Memonitor statistik game secara real-time yang mungkin tidak selalu terlihat di UI standar game.
+## 4. Statistik Pertempuran (Battle Stats)
+Memantau statistik permainan secara real-time.
 - **Tim A vs Tim B:**
-  - Total Kill.
-  - Total Gold & EXP.
-  - Jumlah Tower hancur.
-  - Objektif (Lord/Turtle/LingZhu/ShenGui) yang dibunuh.
-- **Kegunaan:** Analisis performa tim secara mendalam atau untuk kebutuhan casting/streaming overlay via Web Server.
+  - Kill, Gold, EXP, Turret, Objektif.
+- **Catatan:** Data ini diserialisasi ke dalam aliran IPC ketika valid.
 
-## 5. Save Config
-- **Fungsi:** Menyimpan pengaturan menu (posisi window, cheat yang aktif) ke penyimpanan internal.
-- **Lokasi File:** `/data/data/<package_game>/files/imgui.ini` dan config JSON internal.
-- **Auto-Load:** Pengaturan akan dimuat otomatis saat game dijalankan kembali.
+## 5. Pengaburan String (Obfuscation)
+Semua string sensitif (nama library, nama fungsi) dienkripsi saat compile-time menggunakan XOR obfuscation untuk mencegah deteksi string analisis statis.

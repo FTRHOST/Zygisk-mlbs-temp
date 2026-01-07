@@ -24,17 +24,9 @@ LOCAL_C_INCLUDES        += $(LOCAL_PATH)
 LOCAL_C_INCLUDES        += $(LOCAL_PATH)/include
 LOCAL_C_INCLUDES        += $(LOCAL_PATH)/include/Utils
 LOCAL_C_INCLUDES        += $(LOCAL_PATH)/include/Utils/Unity
-LOCAL_C_INCLUDES        += $(LOCAL_PATH)/imgui
 
 # Core Source Files
-LOCAL_SRC_FILES := imgui/imgui.cpp \
-imgui/imgui_demo.cpp \
-imgui/imgui_draw.cpp \
-imgui/imgui_tables.cpp \
-imgui/imgui_widgets.cpp \
-imgui/backends/imgui_impl_android.cpp \
-imgui/backends/imgui_impl_opengl3.cpp \
-struct/MonoString.cpp \
+LOCAL_SRC_FILES := struct/MonoString.cpp \
 xDL/xdl.c \
 xDL/xdl_iterate.c \
 xDL/xdl_linker.c \
@@ -51,8 +43,7 @@ Il2Cpp.cpp \
 utils.cpp \
 hack.cpp \
 main.cpp \
-WebServer.cpp \
-ConfigManager.cpp \
+IpcServer.cpp \
 PathManager.cpp \
 GameLogic.cpp \
 include/Utils/Unity/ByNameModding/Tools.cpp

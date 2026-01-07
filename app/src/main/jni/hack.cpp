@@ -15,14 +15,7 @@
 #include "fake_dlfcn.h"
 #include "Il2Cpp.h"
 #include "GameLogic.h"
-#include "WebServer.h"
-#include "ConfigManager.h"
-#include "imgui/imgui.h"
-#include "imgui/imgui_additional.h"
-#include "imgui/backends/imgui_impl_android.h"
-#include "imgui/backends/imgui_impl_opengl3.h"
-#include "imgui/android_native_app_glue.h"
-#include "imgui/fonts/GoogleSans.h"
+#include "IpcServer.h"
 #include "KittyMemory/MemoryPatch.h"
 
 #include "struct/Vector3.hpp"
@@ -32,141 +25,55 @@
 #include "struct/Quaternion.h"
 #include "struct/MonoString.h"
 
-#include "touch.h"
-
-static bool                 g_IsSetup = false;
 static bool                 g_IsGameReady = false;
-static std::string          g_IniFileName = "";
 static utils::module_info   g_TargetModule{};
-
-HOOKAF(void, Input, void *thiz, void *ex_ab, void *ex_ac) {
-    origInput(thiz, ex_ab, ex_ac);
-  // ImGui_ImplAndroid_HandleInputEvent((AInputEvent *)thiz);
-    return;
-}
-
-void SetupImGui() {
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO &io = ImGui::GetIO();
-
-    io.IniFilename = g_IniFileName.c_str();
-    io.DisplaySize = ImVec2((float)g_GlWidth, (float)g_GlHeight);
-
-    ImGui_ImplAndroid_Init(nullptr);
-    ImGui_ImplOpenGL3_Init("#version 300 es");
-    ImGui::StyleColorsLight();
-
-    ImFontConfig font_cfg;
-    font_cfg.SizePixels = 22.0f;
-    io.Fonts->AddFontDefault(&font_cfg);
-
-    ImGui::GetStyle().ScaleAllSizes(3.0f);
-}
 
 EGLBoolean (*old_eglSwapBuffers)(EGLDisplay dpy, EGLSurface surface);
 EGLBoolean hook_eglSwapBuffers(EGLDisplay dpy, EGLSurface surface) {
-    eglQuerySurface(dpy, surface, EGL_WIDTH, &g_GlWidth);
-    eglQuerySurface(dpy, surface, EGL_HEIGHT, &g_GlHeight);
-
-    if (!g_IsSetup) {
-      SetupImGui();
-      g_IsSetup = true;
-    }
-
-    ImGuiIO &io = ImGui::GetIO();
-
-    ImGui_ImplOpenGL3_NewFrame();
-    ImGui_ImplAndroid_NewFrame(g_GlWidth, g_GlHeight);
-    ImGui::NewFrame();
-
     if (g_IsGameReady) {
         MonitorBattleState();
     }
-
-    if (g_State.showMenu) {
-         if (ImGui::Begin("Zygisk MLBS (White)", &g_State.showMenu)) {
-             ImGui::Text("Features");
-             ImGui::Separator();
-             
-             if (ImGui::Checkbox("Web Server", &g_State.webServerEnabled)) {
-                 if (g_State.webServerEnabled) StartWebServer(); else StopWebServer();
-             }
-             ImGui::SameLine();
-             if (g_IsWebServerReady) ImGui::TextColored(ImVec4(0,1,0,1), "Running");
-             else ImGui::TextColored(ImVec4(1,0,0,1), "Stopped");
-
-             ImGui::Checkbox("Room Info", &g_State.roomInfoEnabled);
-             
-             if (ImGui::Button("Save Config")) {
-                 SaveConfig(g_State);
-             }
-
-             if (ImGui::CollapsingHeader("Player Info")) {
-                 std::lock_guard<std::mutex> lock(g_State.stateMutex);
-                 ImGui::Text("Players: %zu", g_State.players.size());
-                 if (ImGui::BeginTable("Players", 3)) {
-                     ImGui::TableSetupColumn("Camp");
-                     ImGui::TableSetupColumn("Name");
-                     ImGui::TableSetupColumn("Rank");
-                     ImGui::TableHeadersRow();
-                     for (const auto& p : g_State.players) {
-                         ImGui::TableNextRow();
-                         ImGui::TableSetColumnIndex(0); ImGui::Text("%d", p.camp);
-                         ImGui::TableSetColumnIndex(1); ImGui::Text("%s", p.name.c_str());
-                         ImGui::TableSetColumnIndex(2); ImGui::Text("%s", p.rank.c_str());
-                     }
-                     ImGui::EndTable();
-                 }
-             }
-         }
-         ImGui::End();
-    }
-
-    if (g_IsGameReady) {
-        OnTouchEvent();
-    }
-    ImGui::EndFrame();
-    ImGui::Render();
-    glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
-    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
     return old_eglSwapBuffers(dpy, surface);
 }
 
 void hack_start(const char *_game_data_dir) {
     LOGI("hack start | %s", _game_data_dir);
+    
+    // 1. Loop ini menahan proses sampai 'liblogic.so' benar-benar muncul
+    // Proses :ping tidak punya liblogic.so, jadi dia akan terjebak looping di sini selamanya.
+    // Server IPC TIDAK AKAN PERNAH NYALA di proses :ping.
     do {
         sleep(1);
         g_TargetModule = utils::find_module(TargetLibName);
     } while (g_TargetModule.size <= 0);
-    LOGI("%s: %p - %p",TargetLibName, g_TargetModule.start_address, g_TargetModule.end_address);
+
+    LOGI("%s: %p - %p", TargetLibName, g_TargetModule.start_address, g_TargetModule.end_address);
+
+    // 2. [PERBAIKAN] Nyalakan Server IPC DI SINI.
+    // Karena kita sudah melewati loop di atas, kita YAKIN 100% ini adalah PROSES UTAMA.
+    LOGI("MLBS_CORE: Main Process confirmed (LibLogic found). Starting IPC Server...");
+    g_State.roomInfoEnabled = true;
+    StartIpcServer(); 
+
+    // 3. Lanjut Attach
     Il2CppAttach(TargetLibName);
     g_IsGameReady = true;
-    // Hooking and patching are handled in hook_eglSwapBuffers (ImGui) and OnTouchEvent (Input)
 }
 
 void hack_prepare(const char *_game_data_dir) {
     LOGI("hack thread: %d", gettid());
     int api_level = utils::get_android_api_level();
     LOGI("api level: %d", api_level);
-    g_IniFileName = std::string(_game_data_dir) + "/files/imgui.ini";
 
-    void *sym_input = DobbySymbolResolver("/system/lib/libinput.so", "_ZN7android13InputConsumer21initializeMotionEventEPNS_11MotionEventEPKNS_12InputMessageE");
-    if (NULL != sym_input){
-        DobbyHook((void *)sym_input, (dobby_dummy_func_t) myInput, (dobby_dummy_func_t*)&origInput);
-    }
-    
-    void *egl_handle = xdl_open("libEGL.so", 0);
-    void *eglSwapBuffers = xdl_sym(egl_handle, "eglSwapBuffers", nullptr);
+    void *egl_handle = xdl_open(OBFUSCATE("libEGL.so"), 0);
+    void *eglSwapBuffers = xdl_sym(egl_handle, OBFUSCATE("eglSwapBuffers"), nullptr);
     if (NULL != eglSwapBuffers) {
         utils::hook((void*)eglSwapBuffers, (func_t)hook_eglSwapBuffers, (func_t*)&old_eglSwapBuffers);
     }
     xdl_close(egl_handle);
 
-    LoadConfig(g_State);
-    if (g_State.webServerEnabled) {
-        StartWebServer();
-    }
+    // Default enable features since we have no menu
+    g_State.roomInfoEnabled = true;
 
     hack_start(_game_data_dir);
 }

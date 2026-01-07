@@ -6,30 +6,33 @@
 #include <vector>
 #include <string>
 #include <mutex>
+#include <sstream>
 
 #include "Include.h"
 #include "Il2Cpp/il2cpp_dump.h"
 #include "feature/GameClass.h"
 #include "feature/ToString.h"
 #include "feature/ToString2.h"
-#include "WebServer.h"
-#include "ConfigManager.h"
+#include "IpcServer.h"
+#include "obfuscate.h"
 
 // Define Global State
 GlobalState g_State;
-bool g_IsWebServerReady = false;
 
 // Timer variables
 std::chrono::steady_clock::time_point g_battleStartTime;
 std::chrono::duration<float> g_elapsedBattleTime(0);
 std::atomic<bool> g_isBattleTimerRunning(false);
 
+#define LOG_TAG "MLBS_CORE"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+
 // Implementation of GetBattleStats
 BattleStats GetBattleStats() {
     BattleStats stats = {}; 
     void* showFightDataInstance = nullptr;
 
-    Il2CppGetStaticFieldValue("Assembly-CSharp.dll", "", "ShowFightData", "Instance", &showFightDataInstance);
+    Il2CppGetStaticFieldValue(OBFUSCATE("Assembly-CSharp.dll"), "", OBFUSCATE("ShowFightData"), OBFUSCATE("Instance"), &showFightDataInstance);
 
     if (showFightDataInstance) {
         auto* pData = static_cast<ShowFightDataTiny_Layout*>(showFightDataInstance); 
@@ -60,7 +63,6 @@ float GetBattleTime() {
 }
 
 void UpdatePlayerInfo() {
-    // __android_log_print(ANDROID_LOG_INFO, "MLBS_HOOK", "UpdatePlayerInfo: Starting comprehensive update.");
     auto battlePlayerList = ((monoList<void *> *(*)(uintptr_t))SystemData_GetBattlePlayerInfo)((uintptr_t)0);
     if (!battlePlayerList) {
         std::lock_guard<std::mutex> lock(g_State.stateMutex);
@@ -188,29 +190,84 @@ void UpdatePlayerInfo() {
 
 void MonitorBattleState() {
     void *logicBattleManager = nullptr;
-    Il2CppGetStaticFieldValue("Assembly-CSharp.dll", "", "LogicBattleManager", "Instance", &logicBattleManager);
-    if (!logicBattleManager) return;
+    Il2CppGetStaticFieldValue(OBFUSCATE("Assembly-CSharp.dll"), "", OBFUSCATE("LogicBattleManager"), OBFUSCATE("Instance"), &logicBattleManager);
 
-    int currentBattleState = GetBattleState(logicBattleManager);
+    // --- DIAGNOSTIK POINTER ---
+    bool isManagerValid = (logicBattleManager != nullptr);
+    int currentBattleState = -1;
 
-    if (currentBattleState != g_State.battleState) {
-        if (currentBattleState == 6 && !g_isBattleTimerRunning) {
-            g_isBattleTimerRunning = true;
-            g_battleStartTime = std::chrono::steady_clock::now();
-            g_elapsedBattleTime = std::chrono::duration<float>(0);
-        } 
-        else if (currentBattleState == 7 && g_isBattleTimerRunning) {
-            g_isBattleTimerRunning = false;
-            g_elapsedBattleTime = std::chrono::steady_clock::now() - g_battleStartTime;
+    if (isManagerValid) {
+        currentBattleState = GetBattleState(logicBattleManager);
+
+        if (currentBattleState != g_State.battleState) {
+            if (currentBattleState == 6 && !g_isBattleTimerRunning) {
+                g_isBattleTimerRunning = true;
+                g_battleStartTime = std::chrono::steady_clock::now();
+                g_elapsedBattleTime = std::chrono::duration<float>(0);
+            }
+            else if (currentBattleState == 7 && g_isBattleTimerRunning) {
+                g_isBattleTimerRunning = false;
+                g_elapsedBattleTime = std::chrono::steady_clock::now() - g_battleStartTime;
+            }
+
+            std::lock_guard<std::mutex> lock(g_State.stateMutex);
+            g_State.battleState = currentBattleState;
         }
-
-        std::lock_guard<std::mutex> lock(g_State.stateMutex);
-        g_State.battleState = currentBattleState;
     }
     
-    if (currentBattleState == 2 || currentBattleState == 3) {
-        if (g_State.roomInfoEnabled) {
-            UpdatePlayerInfo();
+    if (g_State.roomInfoEnabled && isManagerValid && (currentBattleState == 2 || currentBattleState == 3)) {
+        UpdatePlayerInfo();
+    }
+
+    // --- BROADCAST HEARTBEAT & DEBUG (Setiap ~1 Detik) ---
+    static int frameTick = 0;
+    frameTick++;
+
+    // Asumsi game berjalan 60 FPS, kirim setiap 60 frame
+    if (frameTick % 60 == 0) {
+        std::stringstream ss;
+        ss << "{";
+        ss << "\"type\":\"heartbeat\",";
+        ss << "\"debug\":{";
+        ss << "\"manager_found\":" << (isManagerValid ? "true" : "false") << ",";
+        ss << "\"game_state\":" << currentBattleState << ",";
+        ss << "\"feature_enabled\":" << (g_State.roomInfoEnabled ? "true" : "false");
+        ss << "},";
+
+        ss << "\"data\":{";
+        if (isManagerValid && (currentBattleState == 2 || currentBattleState == 3)) {
+             std::lock_guard<std::mutex> lock(g_State.stateMutex);
+             ss << "\"player_count\":" << g_State.players.size() << ",";
+             ss << "\"players\":[";
+             for (size_t i = 0; i < g_State.players.size(); ++i) {
+                 const auto& p = g_State.players[i];
+                 ss << "{\"name\":\"" << p.name << "\",";
+                 ss << "\"rank\":\"" << p.rank << "\",";
+                 ss << "\"hero\":\"" << p.heroName << "\",";
+                 ss << "\"camp\":" << p.camp << ",";
+                 ss << "\"uid\":\"" << p.uid << "\",";
+                 ss << "\"spell\":\"" << p.spell << "\",";
+                 ss << "\"heroId\":" << p.heroId << ",";
+                 ss << "\"spellId\":" << p.spellId << ",";
+                 ss << "\"rankLevel\":" << p.rankLevel;
+                 ss << "}";
+                 if (i < g_State.players.size() - 1) ss << ",";
+             }
+             ss << "]";
+        } else {
+             ss << "\"info\":\"Waiting for Battle State (Current: " << currentBattleState << ")\"";
+        }
+        ss << "}"; // End data
+        ss << "}"; // End JSON
+
+        // Kirim ke Python Lokal
+        BroadcastData(ss.str());
+
+        // Log juga ke Logcat Android untuk double check
+        if (!isManagerValid) {
+            LOGI("CRITICAL: LogicBattleManager is NULL! Cek Offset Anda.");
+        } else {
+            LOGI("Heartbeat Sent. State: %d, Players: %lu", currentBattleState, g_State.players.size());
         }
     }
 }

@@ -21,6 +21,9 @@ Example:
 const char* obfuscated_string = AY_OBFUSCATE("Hello World");
 std::cout << obfuscated_string << std::endl;
 ----------------------------------------------------------------------------- */
+#ifndef OBFUSCATE_H
+#define OBFUSCATE_H
+
 #include <cstddef>
 #include <string>
 
@@ -202,6 +205,8 @@ namespace ay
 		static auto obfuscated_data = ay::obfuscated_data<n, key>(obfuscator); \
 		return obfuscated_data; \
 	}()
+
+#endif // OBFUSCATE_H
 
 /* -------------------------------- LICENSE ------------------------------------
 Public Domain (http://www.unlicense.org)

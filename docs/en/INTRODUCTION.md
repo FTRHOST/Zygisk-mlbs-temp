@@ -1,40 +1,38 @@
-# Introduction to Android Mod Menu Templates
+# Introduction & Installation
 
-This repository is a mod menu template for Android games (specifically those based on IL2CPP) using ImGui for the user interface (UI). This template is designed to work with Zygisk (Magisk Module) for code injection into the game process.
+This guide covers how to build, install, and verify the module.
 
-## Requirements
-- **Rooted Android** with Magisk or KernelSU.
-- **Zygisk** enabled in Magisk/KernelSU settings.
-- Basic knowledge of C++ and the Android NDK.
+## Prerequisites
+- Android Device (Rooted with Magisk or KernelSU).
+- Zygisk enabled in Magisk/KernelSU settings.
+- **For Building:**
+  - Android NDK (r27 recommended).
+  - Java JDK 17+.
+  - Git.
+- **For Verification:**
+  - Python 3 (installed on PC or Termux).
+  - ADB (Android Debug Bridge).
 
-## How to Use
-1. **Clone Repository:**
-```bash
-git clone https://github.com/FTRHOST/Zygisk-mlbs-temp.git
-```
-2. **Configure Target Game:**
-- Open `app/src/main/jni/game.h` (if present) or `main.cpp`.
-- Change `pkgName` or package detection logic according to your target game.
-- Change `TargetLibName` in `hack.cpp` to the name of the main game library (e.g., `libil2cpp.so` or `libUE4.so`).
+## Installation
+1. Download the `Zygisk-MLBS.zip` from the Releases page.
+2. Open Magisk/KernelSU Manager.
+3. Go to **Modules** -> **Install from Storage**.
+4. Select the zip file.
+5. Reboot your device.
 
-3. **Build:**
-- Open the project in Android Studio or the NDK.
-- Build the module by running the ./package.sh script.
-- Install the resulting module to your Android device.
+## Usage
+Since this is a stealth module, there is no visible menu.
+1. Open the game.
+2. The module runs automatically in the background.
+3. To verify it is working and see the data:
+   - **Method A (Logcat):**
+     Run `adb logcat -s "Askan"` to see system logs.
+   - **Method B (Data Viewer):**
+     1. Push `check_mod.py` to your device (or run on PC with port forwarding setup).
+     2. Run `python3 check_mod.py`.
+     3. You should see real-time JSON data appearing in the console.
 
-4. **Activate Module:**
-- Install the build for the Zygisk module.
-- After installation, you may need to reboot or follow Zygisk-specific instructions (usually the module will appear in the Magisk module list if packaged correctly). *Note: This template uses the Zygisk module approach; make sure you understand how to load Zygisk modules.*
-
-## Main Folder Structure
-- `app/src/main/jni/`: Contains all C++ source code.
-- `imgui/`: The ImGui library.
-- `feature/`: Game-specific feature logic.
-- `hack.cpp`: Entry point for menu initialization and hooks.
-- `main.cpp`: Entry point for the Zygisk module.
-- `GameLogic.cpp`: Logic for reading game data (Battle Stats, Player Info).
-- `WebServer.cpp`: Local HTTP server for exposing game data.
-
-For more details, please read:
-- [Features & Usage (User Guide)](FEATURES.md)
-- [Developer Guide)](DEVELOPMENT.md)
+## Safety Notes
+- Do not use this on your main account. Even with hardening, risk exists.
+- The module creates no files on your internal storage (except standard system logs).
+- Network traffic is fully local (IPC).
