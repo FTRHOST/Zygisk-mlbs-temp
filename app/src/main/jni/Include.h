@@ -7,7 +7,6 @@
 #include "fake_dlfcn.h"
 #include "Il2Cpp.h"
 #include "include/Utils/MonoString.h"
-#include "Toggle.h"
 #include "obfuscate.h"
 #include "Vector3.h"
 
