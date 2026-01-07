@@ -38,14 +38,26 @@ EGLBoolean hook_eglSwapBuffers(EGLDisplay dpy, EGLSurface surface) {
 
 void hack_start(const char *_game_data_dir) {
     LOGI("hack start | %s", _game_data_dir);
+    
+    // 1. Loop ini menahan proses sampai 'liblogic.so' benar-benar muncul
+    // Proses :ping tidak punya liblogic.so, jadi dia akan terjebak looping di sini selamanya.
+    // Server IPC TIDAK AKAN PERNAH NYALA di proses :ping.
     do {
         sleep(1);
         g_TargetModule = utils::find_module(TargetLibName);
     } while (g_TargetModule.size <= 0);
-    LOGI("%s: %p - %p",TargetLibName, g_TargetModule.start_address, g_TargetModule.end_address);
+
+    LOGI("%s: %p - %p", TargetLibName, g_TargetModule.start_address, g_TargetModule.end_address);
+
+    // 2. [PERBAIKAN] Nyalakan Server IPC DI SINI.
+    // Karena kita sudah melewati loop di atas, kita YAKIN 100% ini adalah PROSES UTAMA.
+    LOGI("MLBS_CORE: Main Process confirmed (LibLogic found). Starting IPC Server...");
+    g_State.roomInfoEnabled = true;
+    StartIpcServer(); 
+
+    // 3. Lanjut Attach
     Il2CppAttach(TargetLibName);
     g_IsGameReady = true;
-    // Hooking and patching are handled in hook_eglSwapBuffers
 }
 
 void hack_prepare(const char *_game_data_dir) {
@@ -62,8 +74,6 @@ void hack_prepare(const char *_game_data_dir) {
 
     // Default enable features since we have no menu
     g_State.roomInfoEnabled = true;
-
-    StartIpcServer();
 
     hack_start(_game_data_dir);
 }
