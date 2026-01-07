@@ -12,67 +12,37 @@ This document is intended for developers who want to modify, study, or add new f
   2. `preAppSpecialize`: Detects if the running process is the target game (`isGame`).
   3. `postAppSpecialize`: If the game is detected, a new thread `hack_prepare` is launched (detached).
 
-### Cheat Initialization
+### Initialization
 - **File:** `app/src/main/jni/hack.cpp`
 - **Function `hack_prepare`:**
   1. Waits for the game library (`TargetLibName`) to load.
-  2. Initializes system function hooks (`dlsym` / `DobbyHook`) like `eglSwapBuffers` (for ImGui rendering) and input events.
-  3. Calls `hack_start` to begin game logic.
+  2. Hooks `eglSwapBuffers` (only to drive the main thread update loop).
+  3. Calls `StartIpcServer` to begin the data broadcaster.
+  4. Calls `hack_start` to attach IL2CPP and begin game logic.
 - **Function `hook_eglSwapBuffers`:**
-  - This is the *render loop*.
-  - Initializes ImGui (`SetupImGui`) on the first frame.
-  - Draws the menu (`ImGui::NewFrame`, menu logic, `ImGui::Render`).
-  - Calls `MonitorBattleState()` to update game data every frame.
+  - Calls `MonitorBattleState()` to update and broadcast game data.
+  - Does NOT perform any rendering.
 
-## 2. Hooking System
-Hooking is used to detour game code execution to our code.
-- **Library:** Uses **Dobby** (or internal implementation in `utils.cpp`).
-- **Implementation:**
-  ```cpp
-  // Example in hack.cpp
-  utils::hook((void*)target_func, (func_t)my_hook_func, (func_t*)&original_func);
-  ```
-- **Common Targets:**
-  - `eglSwapBuffers`: To inject the UI (Overlay).
-  - `InputConsumer::initializeMotionEvent`: To capture touch inputs so the menu can be interacted with.
+## 2. IPC System (`IpcServer.cpp`)
+Replaces the old Web Server.
+- **Mechanism:** `AF_UNIX`, `SOCK_STREAM`.
+- **Namespace:** Abstract (starts with null byte `\0`).
+- **Threading:**
+  - `ServerLoop`: Accepts new connections.
+  - `BroadcasterLoop`: Reads from a message queue and sends data to all clients.
+  - **Non-blocking:** Uses `O_NONBLOCK` and a queue to ensure the main game thread is NEVER blocked by network I/O.
 
-## 3. Specific Feature Explanation
+## 3. Game Logic & Memory Reading (`GameLogic.cpp`)
+- **Memory Reading:** Uses `Il2CppGetStaticFieldValue` and manual pointer arithmetic to read `PlayerData`.
+- **Serialization:** Manual JSON construction using `std::stringstream` to avoid heavy external libraries.
+- **Broadcasting:** Calls `BroadcastData(json_string)` to push updates to the IPC queue.
 
-### A. Web Server (`WebServer.cpp`)
-Uses the `cpp-httplib` library to create a lightweight HTTP server.
-- **Threading:** Server runs on a separate thread (`std::thread server_thread`) to avoid blocking the game render loop.
-- **JSON Serialization:** Uses `nlohmann/json` to convert C++ structs (`BattleStats`, `GlobalState`) into JSON strings.
-- **Concurrency:** Since data is accessed from the game thread (render loop) and server thread (request handler), `std::mutex` (`g_State.stateMutex`) is used to prevent *data races*.
+## 4. Security & Hardening
+- **No Input Hooks:** `InputConsumer` hooks were removed.
+- **No Overlay:** ImGui was removed.
+- **Obfuscation:** Strings are wrapped in `OBFUSCATE("string")`. Ensure you include `obfuscate.h` when adding new strings.
 
-### B. Game Logic & Memory Reading (`GameLogic.cpp`)
-This part is responsible for reading data from game memory (IL2CPP).
-- **IL2CPP Reflection:** Uses helper functions `Il2CppGetStaticFieldValue` to access game singleton instances (e.g., `LogicBattleManager`, `ShowFightData`).
-- **UpdatePlayerInfo:**
-  - Reads player list from `SystemData_GetBattlePlayerInfo`.
-  - Iterates and reads fields at specific memory offsets.
-  - **IMPORTANT:** Offsets (like `SystemData_RoomData_...` in `ToString.h`/`GameClass.h`) must be updated if the game updates.
-- **Battle Stats:**
-  - Accesses `ShowFightDataTiny_Layout` class to read kills, gold, exp.
-
-## 4. Adding New Features
-
-### Adding a Checkbox to the Menu
-1. Open `hack.cpp`.
-2. Find the `ImGui::Begin` section.
-3. Add `ImGui::Checkbox("Feature Name", &variable_boolean);`.
-4. Implement the feature logic (e.g., inside `hook_eglSwapBuffers` or other hook functions) using `if (variable_boolean) { ... }`.
-
-### Adding a New API Endpoint
-1. Open `WebServer.cpp`.
-2. Inside the `RunServerLoop` function, add:
-   ```cpp
-   svr->Get("/new_endpoint", [](const httplib::Request &, httplib::Response &res) {
-       // Your logic
-       res.set_content("Hello World", "text/plain");
-   });
-   ```
-
-## 5. Debugging Tips
-- Use `LOGI`, `LOGE` (defined in `log.h`) to print logs to Logcat.
-- Filter Logcat in Android Studio with the tag "Zygisk" or your library name.
-- If the game crashes (Force Close), check memory offsets. Incorrect offsets are the main cause of crashes in memory-based mod menus.
+## 5. Adding New Features
+1. **Read Memory:** Add logic in `GameLogic.cpp` to read the desired data.
+2. **Serialize:** Append the new data to the JSON string builder in `MonitorBattleState`.
+3. **Verify:** Use `check_mod.py` to see if the new field appears in the output.
