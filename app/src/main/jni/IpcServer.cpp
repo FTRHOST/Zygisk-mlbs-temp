@@ -11,16 +11,17 @@
 #include <fcntl.h>
 #include <android/log.h>
 #include "obfuscate.h"
-#include "GameLogic.h" // For g_State access
+#include "GameLogic.h"
 
 #define TAG "MLBS_IPC"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
 static int server_fd = -1;
 static std::atomic<bool> server_running(false);
 static std::vector<int> clients;
 static std::mutex clients_mutex;
 
-// Queue for broadcast messages to avoid blocking game thread
 static std::deque<std::string> message_queue;
 static std::mutex queue_mutex;
 static std::condition_variable queue_cv;
@@ -38,6 +39,7 @@ void SetNonBlocking(int fd) {
 void BroadcastData(const std::string& data);
 
 void HandleIncomingCommand(const std::string& cmd) {
+    LOGI("Received command: %s", cmd.c_str());
     if (cmd.find("cmd:stop") != std::string::npos) {
         std::lock_guard<std::mutex> lock(g_State.stateMutex);
         g_State.roomInfoEnabled = false;
@@ -51,13 +53,9 @@ void HandleIncomingCommand(const std::string& cmd) {
 }
 
 void ClientReaderLoop(int client_fd) {
+    LOGI("Reader loop started for FD: %d", client_fd);
     char buffer[1024];
     while (server_running) {
-        // Simple blocking read (or non-blocking with sleep)
-        // Since we are in a thread per client or just one thread, let's use non-blocking + sleep for simplicity
-        // to check server_running, or blocking read if we close socket on stop.
-        // We set O_NONBLOCK earlier, so read will return -1/EAGAIN.
-
         ssize_t bytes_read = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
 
         if (bytes_read > 0) {
@@ -65,26 +63,26 @@ void ClientReaderLoop(int client_fd) {
             std::string cmd(buffer);
             HandleIncomingCommand(cmd);
         } else if (bytes_read == 0) {
-            // Disconnected
+            LOGI("Client FD %d disconnected (EOF)", client_fd);
             break;
         } else {
-            // Error or WouldBlock
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 continue;
             } else {
+                LOGE("Client FD %d read error: %s", client_fd, strerror(errno));
                 break;
             }
         }
     }
 
-    // Cleanup client from list
     close(client_fd);
     {
         std::lock_guard<std::mutex> lock(clients_mutex);
         auto it = std::find(clients.begin(), clients.end(), client_fd);
         if (it != clients.end()) {
             clients.erase(it);
+            LOGI("Client FD %d removed from list", client_fd);
         }
     }
 }
@@ -95,12 +93,12 @@ void HandleClient(int client_fd) {
         std::lock_guard<std::mutex> lock(clients_mutex);
         clients.push_back(client_fd);
     }
-
-    // Spawn a reader thread for this client
+    LOGI("New client accepted! FD: %d. Total clients: %zu", client_fd, clients.size());
     std::thread(ClientReaderLoop, client_fd).detach();
 }
 
 void BroadcasterLoop() {
+    LOGI("Broadcaster Thread Started");
     while (server_running) {
         std::string message;
         {
@@ -117,55 +115,62 @@ void BroadcasterLoop() {
 
         if (!message.empty()) {
             std::lock_guard<std::mutex> lock(clients_mutex);
+            if (clients.empty()) {
+                // LOGI("Broadcasting message but no clients connected.");
+            }
             for (auto it = clients.begin(); it != clients.end(); ) {
                 int fd = *it;
                 std::string msg = message + "\n";
-                // MSG_NOSIGNAL prevents SIGPIPE if client disconnected
-                // We use non-blocking send indirectly because we set O_NONBLOCK on socket.
-                // However, if buffer is full, send might fail with EAGAIN.
-                // In that case, we just drop the packet for that client to avoid lagging everyone else.
                 ssize_t sent = send(fd, msg.c_str(), msg.length(), MSG_NOSIGNAL);
 
-                if (sent < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-                    // Real error, disconnect logic is handled in Reader Loop or here
-                    // If we remove here, Reader Loop might crash or error out.
-                    // Let's assume Reader Loop handles disconnect primarily, but if write fails drastically we can remove.
-                    // For now, let's keep list management simple. If write fails, we'll likely detect it in read loop eventually.
-                    // But to be safe:
-                    // close(fd);
-                    // it = clients.erase(it);
-                    // Actually, let's leave it to Reader Loop to cleanup to avoid double-free race.
-                    ++it;
+                if (sent < 0) {
+                    if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                        LOGE("Send failed to FD %d: %s", fd, strerror(errno));
+                        // Let Reader Loop handle cleanup? Or force it here?
+                        // If we force cleanup here, we must be careful with Reader Loop.
+                        // Ideally, a broken pipe error means we should close.
+                        // For debugging, let's just log.
+                    }
                 } else {
-                    ++it;
+                    // LOGI("Sent %zd bytes to FD %d", sent, fd);
                 }
+                ++it;
             }
         }
     }
+    LOGI("Broadcaster Thread Stopped");
 }
 
 void ServerLoop() {
     server_fd = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (server_fd < 0) return;
+    if (server_fd < 0) {
+        LOGE("Failed to create socket: %s", strerror(errno));
+        return;
+    }
 
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
 
-    // Abstract namespace: first byte is null
-    // We can obfuscate the name string copy
     const char* obf_name = OBFUSCATE("mlbs_ipc");
+    // Ensure abstract namespace by explicitly handling the null byte logic
+    // Name in sun_path: \0mlbs_ipc
+    addr.sun_path[0] = '\0';
     strncpy(addr.sun_path + 1, obf_name, sizeof(addr.sun_path) - 2);
 
     if (bind(server_fd, (struct sockaddr*)&addr, sizeof(sa_family_t) + 1 + strlen(obf_name)) < 0) {
+        LOGE("Bind failed: %s", strerror(errno));
         close(server_fd);
         return;
     }
 
     if (listen(server_fd, 5) < 0) {
+        LOGE("Listen failed: %s", strerror(errno));
         close(server_fd);
         return;
     }
+
+    LOGI("IPC Server Listening on \\0%s", obf_name);
 
     while (server_running) {
         struct sockaddr_un client_addr;
@@ -173,6 +178,10 @@ void ServerLoop() {
         int client_fd = accept(server_fd, (struct sockaddr*)&client_addr, &len);
         if (client_fd >= 0) {
             HandleClient(client_fd);
+        } else {
+            // LOGE("Accept failed: %s", strerror(errno));
+            // Sleep to avoid busy loop if accept fails repeatedly
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     }
 }
@@ -184,6 +193,7 @@ void StartIpcServer() {
     broadcaster_thread = std::thread(BroadcasterLoop);
     server_thread.detach();
     broadcaster_thread.detach();
+    LOGI("IpcServer Started");
 }
 
 void StopIpcServer() {
@@ -208,7 +218,6 @@ void BroadcastData(const std::string& data) {
 
     {
         std::lock_guard<std::mutex> lock(queue_mutex);
-        // Limit queue size to prevent memory explosion if broadcaster is slow
         if (message_queue.size() > 10) {
             message_queue.pop_front();
         }

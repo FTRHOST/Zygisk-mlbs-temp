@@ -38,27 +38,29 @@ def socket_listener():
 
     sock = connect_to_game()
     game_socket = sock
-    buffer = ""
+    byte_buffer = b""
 
     while True:
         try:
             data = sock.recv(4096)
             if not data:
-                print("[RELAY] Koneksi game putus via Socket.")
+                print("[RELAY] Koneksi game putus via Socket (EOF).")
                 sock.close()
+                time.sleep(1)
                 sock = connect_to_game() # Reconnect
                 game_socket = sock
+                byte_buffer = b""
                 continue
 
-            chunk = data.decode('utf-8', errors='ignore')
-            buffer += chunk
+            byte_buffer += data
 
-            while '\n' in buffer: # Asumsi C++ kirim dengan delimiter \n
-                msg, buffer = buffer.split('\n', 1)
-                if not msg.strip(): continue
+            while b'\n' in byte_buffer:
+                line_bytes, byte_buffer = byte_buffer.split(b'\n', 1)
+                line = line_bytes.decode('utf-8', errors='ignore').strip()
+                if not line: continue
 
                 try:
-                    parsed = json.loads(msg)
+                    parsed = json.loads(line)
                     # Update global data
                     latest_data["last_update"] = time.time()
                     latest_data["status"] = "connected"
@@ -72,9 +74,9 @@ def socket_listener():
                     # Debug print di terminal HP/Termux
                     state = latest_data.get('debug', {}).get('game_state', 'N/A')
                     p_count = len(latest_data.get('game_data', {}).get('players', []))
-                    print(f"\r[LIVE] State: {state} | Players: {p_count} | Bytes: {len(msg)}   ", end="")
+                    print(f"\r[LIVE] State: {state} | Players: {p_count} | Bytes: {len(line)}   ", end="")
                 except json.JSONDecodeError:
-                    print(f"\n[ERR] Bad JSON: {msg[:50]}...")
+                    print(f"\n[ERR] Bad JSON: {line[:50]}...")
                 except Exception as e:
                     print(f"\n[ERR] Process error: {e}")
 
@@ -86,6 +88,7 @@ def socket_listener():
             except: pass
             sock = connect_to_game()
             game_socket = sock
+            byte_buffer = b""
 
 # --- API ENDPOINTS (Diakses dari PC) ---
 
