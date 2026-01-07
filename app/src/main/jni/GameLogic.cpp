@@ -14,6 +14,7 @@
 #include "feature/GameClass.h"
 #include "feature/ToString.h"
 #include "feature/ToString2.h"
+#include "feature/BattleData.h" // Include this for ShowFightDataTiny_Layout
 #include "IpcServer.h"
 #include "obfuscate.h"
 #include "dobby.h" // For Hooking
@@ -59,6 +60,34 @@ void new_UIRankHero_OnUpdate(void* instance) {
     if (old_UIRankHero_OnUpdate) {
         old_UIRankHero_OnUpdate(instance);
     }
+}
+
+// --- Implementation of GetBattleStats ---
+// This was missing in the previous version, causing linker errors.
+BattleStats GetBattleStats() {
+    BattleStats stats = {};
+    void* showFightDataInstance = nullptr;
+
+    Il2CppGetStaticFieldValue(OBFUSCATE("Assembly-CSharp.dll"), "", OBFUSCATE("ShowFightData"), OBFUSCATE("Instance"), &showFightDataInstance);
+
+    if (showFightDataInstance) {
+        auto* pData = static_cast<ShowFightDataTiny_Layout*>(showFightDataInstance);
+
+        stats.iCampAKill = pData->m_iCampAKill;
+        stats.iCampBKill = pData->m_iCampBKill;
+        stats.CampAGold = pData->m_CampAGold;
+        stats.CampBGold = pData->m_CampBGold;
+        stats.CampAExp = pData->m_CampAExp;
+        stats.CampBExp = pData->m_CampBExp;
+        stats.CampAKillTower = pData->m_CampAKillTower;
+        stats.CampBKillTower = pData->m_CampBKillTower;
+        stats.CampAKillLingZhu = pData->m_CampAKillLingZhu;
+        stats.CampBKillLingZhu = pData->m_CampBKillLingZhu;
+        stats.CampAKillShenGui = pData->m_CampAKillShenGui;
+        stats.CampBKillShenGui = pData->m_CampBKillShenGui;
+    }
+
+    return stats;
 }
 
 // --- LOGIC IMPLEMENTATION ---
