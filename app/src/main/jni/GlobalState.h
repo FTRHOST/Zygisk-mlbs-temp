@@ -31,6 +31,9 @@ struct PlayerData {
     std::string heroName;  // String representation
     std::string spell;     // String representation
 
+    // Ban/Pick
+    uint32_t uiHeroIDChoose; // Picked Hero ID
+
     // Legacy/Computed fields
     std::string name;
     std::string uid;

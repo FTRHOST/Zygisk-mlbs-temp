@@ -35,9 +35,10 @@ void* g_UIRankHero_Instance = nullptr; // For BanPick
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
 // --- HELPER FUNCTIONS ---
-std::string HeroToString(int id) { return std::to_string(id); } // Mock
-std::string RankToString(int id, int star) { return std::to_string(id); } // Mock
-std::string SpellToString(int id) { return std::to_string(id); } // Mock
+// Removing redefinitions as they are in feature/ToString.h
+// std::string HeroToString(int id) { return std::to_string(id); }
+// std::string RankToString(int id, int star) { return std::to_string(id); }
+// std::string SpellToString(int id) { return std::to_string(id); }
 
 // Helper to safely read a field
 #define READ_FIELD(target, type, offset) \
