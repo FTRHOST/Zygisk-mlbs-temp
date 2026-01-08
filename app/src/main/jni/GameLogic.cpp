@@ -45,6 +45,10 @@ void* g_UIRankHero_Instance = nullptr; // For BanPick
         if(str) target = str->CString(); \
     }
 
+// Helper to read simple Pointer/Address
+#define READ_PTR(target, offset) \
+    if(offset > 0) target = (uintptr_t)(*(void**)((uintptr_t)pawn + offset));
+
 // --- HOOKING UIRankHero ---
 void (*old_UIRankHero_OnUpdate)(void* instance);
 void new_UIRankHero_OnUpdate(void* instance) {
@@ -146,10 +150,8 @@ void UpdateBattleStats() {
     if (battleDataInstance && BattleData_heroInfoList > 0) {
         void* dictPtr = *(void**)((uintptr_t)battleDataInstance + BattleData_heroInfoList);
         if (dictPtr) {
-            // Manually iterate dictionary structure or use helper if available.
             // Dictionary<uint32_t, FightHeroInfo>
             auto* dictionary = (Dictionary<uint32_t, void*>*)dictPtr;
-            // Warning: Dictionary layout might vary, but Il2Cpp.h defines a standard one.
 
             if (dictionary->entries && dictionary->count > 0) {
                 auto entries = dictionary->entries->toCPPlist();
@@ -160,13 +162,9 @@ void UpdateBattleStats() {
                     PlayerBattleData pb = {};
                     void* pawn = fightHeroInfo; // Alias for READ_FIELD macro
 
-                    READ_FIELD(pb.uGuid, uint32_t, FightHeroInfo_m_uGuid); // Note: struct has uint64, dump says uint32? Dump says uint32 m_uGuid;
-                    // Wait, RoomData lUid is ulong (64), FightHeroInfo m_uGuid is uint (32) usually short ID.
-                    // But FightHeroInfo also has m_AccountId (uint64). Let's grab that for matching if needed.
-                    // Let's rely on m_uGuid for now as it's common in battle.
-
-                    READ_STRING(pb.playerName, FightHeroInfo_m_PlayerName);
-                    READ_FIELD(pb.campType, int32_t, FightHeroInfo_m_CampType); // uint32 in dump, int32 in struct
+                    READ_FIELD(pb.uGuid, uint32_t, FightHeroInfo_m_uGuid);
+                    READ_STRING(pb.playerName, FightHeroInfo_m_PlayerName); // Uses original function name retrieval
+                    READ_FIELD(pb.campType, int32_t, FightHeroInfo_m_CampType);
                     READ_FIELD(pb.kill, uint32_t, FightHeroInfo_m_KillNum);
                     READ_FIELD(pb.death, uint32_t, FightHeroInfo_m_DeadNum);
                     READ_FIELD(pb.assist, uint32_t, FightHeroInfo_m_AssistNum);
@@ -214,6 +212,7 @@ void UpdatePlayerInfo() {
 
         PlayerData p = {};
         
+        // --- KEY IDENTIFIERS ---
         READ_FIELD(p.lUid, uint64_t, SystemData_RoomData_lUid);
         READ_FIELD(p.bUid, uint64_t, SystemData_RoomData_bUid);
         READ_FIELD(p.iCamp, uint32_t, SystemData_RoomData_iCamp);
@@ -232,7 +231,7 @@ void UpdatePlayerInfo() {
         READ_FIELD(p.bNewPlayer, bool, SystemData_RoomData_bNewPlayer);
         READ_FIELD(p.uiHeroIDChoose, uint32_t, SystemData_RoomData_uiHeroIDChoose);
 
-        // Raw Data (Massive list)
+        // --- MASSIVE RAW FIELD DUMP ---
         READ_FIELD(p.bAutoConditionNew, bool, SystemData_RoomData_bAutoConditionNew);
         READ_FIELD(p.bShowSeasonAchieve, bool, SystemData_RoomData_bShowSeasonAchieve);
         READ_FIELD(p.iStyleBoardId, uint32_t, SystemData_RoomData_iStyleBoardId);
@@ -301,8 +300,25 @@ void UpdatePlayerInfo() {
         READ_FIELD(p.iChatBanFinishTime, uint32_t, SystemData_RoomData_iChatBanFinishTime);
         READ_FIELD(p.iChatBanBattleNum, uint32_t, SystemData_RoomData_iChatBanBattleNum);
         
+        // Pointers/Complex Types (Just grabbing address for 'raw' info as requested)
+        READ_PTR(p.mapTalentTree_Ptr, SystemData_RoomData_mapTalentTree);
+        READ_PTR(p.mRuneSkill2023_Ptr, SystemData_RoomData_mRuneSkill2023);
+        READ_PTR(p.skinlist_Ptr, SystemData_RoomData_skinlist);
+        READ_PTR(p.vCanSelectHero_Ptr, SystemData_RoomData_vCanSelectHero);
+        READ_PTR(p.vCanPickHero_Ptr, SystemData_RoomData_vCanPickHero);
+        READ_PTR(p.lsEffectSkins_Ptr, SystemData_RoomData_lsEffectSkins);
+        READ_PTR(p.lsComEffSkins_Ptr, SystemData_RoomData_lsComEffSkins);
+        READ_PTR(p.vMissions_Ptr, SystemData_RoomData_vMissions);
+        READ_PTR(p.vTitle_Ptr, SystemData_RoomData_vTitle);
+        READ_PTR(p.vEmoji_Ptr, SystemData_RoomData_vEmoji);
+        READ_PTR(p.vItemBuff_Ptr, SystemData_RoomData_vItemBuff);
+        READ_PTR(p.vMapPaint_Ptr, SystemData_RoomData_vMapPaint);
+        READ_PTR(p.mapBattleAttr_Ptr, SystemData_RoomData_mapBattleAttr);
+        READ_PTR(p.vFastChat_Ptr, SystemData_RoomData_vFastChat);
+        READ_PTR(p.vWantSelectHero_Ptr, SystemData_RoomData_vWantSelectHero);
+
         // Legacy/Computed
-        p.name = p._sName;
+        p.name = p._sName; // Ensure _sName is used
         p.uid = std::to_string(p.lUid) + "(" + std::to_string(p.uiZoneId) + ")";
         p.rank = RankToString(p.uiRankLevel, p.iMythPoint);
         p.spell = SpellToString(p.summonSkillId);
@@ -372,25 +388,90 @@ void MonitorBattleState() {
              for (size_t i = 0; i < g_State.players.size(); ++i) {
                  const auto& p = g_State.players[i];
                  ss << "{";
-                 // Minimal info for list, full details can be on demand but user wants raw here
+                 // Key Data
                  ss << "\"lUid\":" << p.lUid << ",";
-                 ss << "\"name\":\"" << p.name << "\",";
-                 ss << "\"camp\":" << p.camp << ",";
+                 ss << "\"_sName\":\"" << p._sName << "\",";
+                 ss << "\"iCamp\":" << p.iCamp << ",";
                  ss << "\"heroid\":" << p.heroid << ",";
-                 ss << "\"bRobot\":" << (p.bRobot ? "true" : "false") << ",";
-                 ss << "\"uiRankLevel\":" << p.uiRankLevel << ",";
-                 ss << "\"iMythPoint\":" << p.iMythPoint << ",";
-                 ss << "\"uiZoneId\":" << p.uiZoneId << ",";
-                 ss << "\"banHero\":" << p.banHero << ",";
-                 ss << "\"pickHero\":" << p.uiHeroIDChoose << ",";
 
-                 // Adding some raw fields requested
-                 ss << "\"bAutoConditionNew\":" << (p.bAutoConditionNew ? "true" : "false") << ",";
+                 // Expanded Raw Data
+                 ss << "\"bAutoConditionNew\":" << p.bAutoConditionNew << ",";
+                 ss << "\"bShowSeasonAchieve\":" << p.bShowSeasonAchieve << ",";
                  ss << "\"iStyleBoardId\":" << p.iStyleBoardId << ",";
                  ss << "\"iMatchEffectId\":" << p.iMatchEffectId << ",";
+                 ss << "\"iDayBreakNo1Count\":" << p.iDayBreakNo1Count << ",";
+                 ss << "\"bAutoReadySelect\":" << p.bAutoReadySelect << ",";
+                 ss << "\"bRobot\":" << p.bRobot << ",";
+                 ss << "\"headID\":" << p.headID << ",";
+                 ss << "\"uiSex\":" << p.uiSex << ",";
+                 ss << "\"country\":" << p.country << ",";
+                 ss << "\"uiZoneId\":" << p.uiZoneId << ",";
+                 ss << "\"summonSkillId\":" << p.summonSkillId << ",";
+                 ss << "\"runeId\":" << p.runeId << ",";
+                 ss << "\"runeLv\":" << p.runeLv << ",";
+                 ss << "\"facePath\":\"" << p.facePath << "\",";
+                 ss << "\"faceBorder\":" << p.faceBorder << ",";
+                 ss << "\"bStarVip\":" << p.bStarVip << ",";
+                 ss << "\"bMCStarVip\":" << p.bMCStarVip << ",";
+                 ss << "\"bMCStarVipPlus\":" << p.bMCStarVipPlus << ",";
+                 ss << "\"ulRoomID\":" << p.ulRoomID << ",";
+                 ss << "\"iConBlackRoomId\":" << p.iConBlackRoomId << ",";
+                 ss << "\"banHero\":" << p.banHero << ",";
+                 ss << "\"uiBattlePlayerType\":" << p.uiBattlePlayerType << ",";
                  ss << "\"sThisLoginCountry\":\"" << p.sThisLoginCountry << "\",";
+                 ss << "\"sCreateRoleCountry\":\"" << p.sCreateRoleCountry << "\",";
                  ss << "\"uiLanguage\":" << p.uiLanguage << ",";
-                 ss << "\"iTeamId\":" << p.iTeamId;
+                 ss << "\"bIsOpenLive\":" << p.bIsOpenLive << ",";
+                 ss << "\"iTeamId\":" << p.iTeamId << ",";
+                 ss << "\"iTeamNationId\":" << p.iTeamNationId << ",";
+                 ss << "\"_steamName\":\"" << p._steamName << "\",";
+                 ss << "\"_steamSimpleName\":\"" << p._steamSimpleName << "\",";
+                 ss << "\"iCertify\":" << p.iCertify << ",";
+                 ss << "\"uiRankLevel\":" << p.uiRankLevel << ",";
+                 ss << "\"uiPVPRank\":" << p.uiPVPRank << ",";
+                 ss << "\"bRankReview\":" << p.bRankReview << ",";
+                 ss << "\"iElo\":" << p.iElo << ",";
+                 ss << "\"uiRoleLevel\":" << p.uiRoleLevel << ",";
+                 ss << "\"bNewPlayer\":" << p.bNewPlayer << ",";
+                 ss << "\"iRoad\":" << p.iRoad << ",";
+                 ss << "\"uiSkinSource\":" << p.uiSkinSource << ",";
+                 ss << "\"iFighterType\":" << p.iFighterType << ",";
+                 ss << "\"iWorldCupSupportCountry\":" << p.iWorldCupSupportCountry << ",";
+                 ss << "\"iHeroLevel\":" << p.iHeroLevel << ",";
+                 ss << "\"iHeroSubLevel\":" << p.iHeroSubLevel << ",";
+                 ss << "\"iHeroPowerLevel\":" << p.iHeroPowerLevel << ",";
+                 ss << "\"iActCamp\":" << p.iActCamp << ",";
+                 ss << "\"mHeroMission\":" << p.mHeroMission << ",";
+                 ss << "\"mSkinPaint\":" << p.mSkinPaint << ",";
+                 ss << "\"sClientVersion\":\"" << p.sClientVersion << "\",";
+                 ss << "\"uiHolyStatue\":" << p.uiHolyStatue << ",";
+                 ss << "\"uiKamon\":" << p.uiKamon << ",";
+                 ss << "\"uiUserMapID\":" << p.uiUserMapID << ",";
+                 ss << "\"iSurviveRank\":" << p.iSurviveRank << ",";
+                 ss << "\"iDefenceRankID\":" << p.iDefenceRankID << ",";
+                 ss << "\"iLeagueWCNum\":" << p.iLeagueWCNum << ",";
+                 ss << "\"iLeagueFCNum\":" << p.iLeagueFCNum << ",";
+                 ss << "\"iMPLCertifyTime\":" << p.iMPLCertifyTime << ",";
+                 ss << "\"iMPLCertifyID\":" << p.iMPLCertifyID << ",";
+                 ss << "\"iHeroUseCount\":" << p.iHeroUseCount << ",";
+                 ss << "\"iMythPoint\":" << p.iMythPoint << ",";
+                 ss << "\"bMythEvaled\":" << p.bMythEvaled << ",";
+                 ss << "\"iDefenceFlag\":" << p.iDefenceFlag << ",";
+                 ss << "\"iDefenPoint\":" << p.iDefenPoint << ",";
+                 ss << "\"iDefenceMap\":" << p.iDefenceMap << ",";
+                 ss << "\"iAIType\":" << p.iAIType << ",";
+                 ss << "\"iAISeed\":" << p.iAISeed << ",";
+                 ss << "\"sAiName\":\"" << p.sAiName << "\",";
+                 ss << "\"iWarmValue\":" << p.iWarmValue << ",";
+                 ss << "\"uiAircraftIDChooose\":" << p.uiAircraftIDChooose << ",";
+                 ss << "\"uiHeroIDChoose\":" << p.uiHeroIDChoose << ",";
+                 ss << "\"uiHeroSkinIDChoose\":" << p.uiHeroSkinIDChoose << ",";
+                 ss << "\"uiMapIDChoose\":" << p.uiMapIDChoose << ",";
+                 ss << "\"uiMapSkinIDChoose\":" << p.uiMapSkinIDChoose << ",";
+                 ss << "\"uiDefenceRankScore\":" << p.uiDefenceRankScore << ",";
+                 ss << "\"bBanChat\":" << p.bBanChat << ",";
+                 ss << "\"iChatBanFinishTime\":" << p.iChatBanFinishTime << ",";
+                 ss << "\"iChatBanBattleNum\":" << p.iChatBanBattleNum;
 
                  ss << "}";
                  if (i < g_State.players.size() - 1) ss << ",";
@@ -413,7 +494,7 @@ void MonitorBattleState() {
                  const auto& bp = g_State.battlePlayers[i];
                  ss << "{";
                  ss << "\"uGuid\":" << bp.uGuid << ",";
-                 ss << "\"name\":\"" << bp.playerName << "\",";
+                 ss << "\"playerName\":\"" << bp.playerName << "\","; // Uses original name
                  ss << "\"camp\":" << bp.campType << ",";
                  ss << "\"kill\":" << bp.kill << ",";
                  ss << "\"death\":" << bp.death << ",";
