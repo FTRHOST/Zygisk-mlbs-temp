@@ -104,6 +104,11 @@ struct PlayerData {
     int heroId;
     int spellId;
     int rankLevel;
+
+    // Added to fix compilation errors
+    std::string rank;
+    std::string spell;
+    std::string heroName;
 };
 
 // Real-time Battle Info for a Player (Dynamic)
