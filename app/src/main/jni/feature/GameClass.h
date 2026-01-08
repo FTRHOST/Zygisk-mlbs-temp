@@ -219,6 +219,9 @@ int GetBattleState(void* instance) {
 // Added SystemData_StopCheckMD5 Definition to resolve undefined identifier error
 #define SystemData_StopCheckMD5 (uintptr_t) Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE(""), OBFUSCATE("SystemData"), OBFUSCATE("StopCheckMD5"), 0)
 
+// ADDED: Definition for SystemData_RoomData_vWantSelectHero to resolve build error
+#define SystemData_RoomData_vWantSelectHero (uintptr_t) Il2CppGetFieldOffset("Assembly-CSharp.dll", "", "SystemData/RoomData", "vWantSelectHero")
+
 //Duplikasi Room InfoTable (Consider removing duplicates if above covers them, but keeping for safety of existing code)
 #define RoomData_steamSimpleName (uintptr_t) Il2CppGetFieldOffset("Assembly-CSharp.dll", "", "SystemData/RoomData", "_steamSimpleName")
 #define RoomData_steamName (uintptr_t) Il2CppGetFieldOffset("Assembly-CSharp.dll", "", "SystemData/RoomData", "_steamName")
