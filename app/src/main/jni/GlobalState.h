@@ -23,16 +23,79 @@ struct PlayerData {
     uint32_t iMythPoint;
     uint32_t uiZoneId;
 
-    // Additional Details
-    uint32_t banHero;
+    // Raw Fields Requested by User
+    bool bAutoConditionNew;
+    bool bShowSeasonAchieve;
+    uint32_t iStyleBoardId;
+    uint32_t iMatchEffectId;
+    uint32_t iDayBreakNo1Count;
+    bool bAutoReadySelect;
     bool bRobot;
+    uint32_t headID;
+    uint32_t uiSex;
+    uint32_t country;
+    std::string facePath;
+    uint32_t faceBorder;
+    bool bStarVip;
+    bool bMCStarVip;
+    bool bMCStarVipPlus;
+    uint64_t ulRoomID;
+    uint64_t iConBlackRoomId;
+    uint32_t banHero;
+    uint32_t uiBattlePlayerType;
+    std::string sThisLoginCountry;
+    std::string sCreateRoleCountry;
+    uint32_t uiLanguage;
+    bool bIsOpenLive;
+    uint64_t iTeamId;
+    uint64_t iTeamNationId;
+    std::string _steamName;
+    std::string _steamSimpleName;
+    uint32_t iCertify;
+    uint32_t uiPVPRank;
+    bool bRankReview;
+    uint32_t iElo;
+    uint32_t uiRoleLevel;
     bool bNewPlayer;
-    std::string rank;      // String representation
-    std::string heroName;  // String representation
-    std::string spell;     // String representation
-
-    // Ban/Pick
-    uint32_t uiHeroIDChoose; // Picked Hero ID
+    uint32_t iRoad;
+    uint32_t uiSkinSource;
+    uint32_t iFighterType;
+    uint32_t iWorldCupSupportCountry;
+    uint32_t iHeroLevel;
+    uint32_t iHeroSubLevel;
+    uint32_t iHeroPowerLevel;
+    uint32_t iActCamp;
+    // Lists are hard to serialize in C++ raw struct, we'll skip complex lists for now unless critical
+    uint32_t mHeroMission;
+    uint32_t mSkinPaint;
+    std::string sClientVersion;
+    uint32_t uiHolyStatue;
+    uint32_t uiKamon;
+    uint32_t uiUserMapID;
+    uint32_t iSurviveRank;
+    uint32_t iDefenceRankID;
+    uint32_t iLeagueWCNum;
+    uint32_t iLeagueFCNum;
+    uint32_t iMPLCertifyTime;
+    uint32_t iMPLCertifyID;
+    uint32_t iHeroUseCount;
+    bool bMythEvaled;
+    uint32_t iDefenceFlag;
+    uint32_t iDefenPoint;
+    uint32_t iDefenceMap;
+    uint32_t iAIType;
+    uint32_t iAISeed;
+    std::string sAiName;
+    uint32_t iWarmValue;
+    uint32_t uiAircraftIDChooose;
+    uint32_t uiHeroIDChoose;
+    uint32_t uiHeroSkinIDChoose;
+    uint32_t uiMapIDChoose;
+    uint32_t uiMapSkinIDChoose;
+    uint32_t uiDefenceRankScore;
+    bool bBanChat;
+    uint32_t iChatBanFinishTime;
+    uint32_t iChatBanBattleNum;
 
     // Legacy/Computed fields
     std::string name;
@@ -45,14 +108,14 @@ struct PlayerData {
 
 // Real-time Battle Info for a Player (Dynamic)
 struct PlayerBattleData {
-    uint32_t heroid;
-    int32_t iCamp;
-    int32_t iPos;
-    int32_t gold;
-    int32_t kill;
-    int32_t death;
-    int32_t assist;
-    // Potentially add items here later if needed
+    uint64_t uGuid; // To match with RoomData
+    std::string playerName;
+    int32_t campType;
+    uint32_t kill;
+    uint32_t death;
+    uint32_t assist;
+    uint32_t gold;
+    uint32_t totalGold;
 };
 
 // Ban/Pick State
@@ -97,7 +160,7 @@ struct GlobalState {
 
     // Data Stores
     std::vector<PlayerData> players; // From SystemData.RoomData
-    std::vector<PlayerBattleData> battlePlayers; // From Battle.FightPlayerData
+    std::vector<PlayerBattleData> battlePlayers; // From BattleData.heroInfoList
     BanPickState banPickState;
     BattleGlobalStats battleStats;
 

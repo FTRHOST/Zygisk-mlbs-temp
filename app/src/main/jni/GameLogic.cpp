@@ -35,12 +35,6 @@ void* g_UIRankHero_Instance = nullptr; // For BanPick
 #define LOG_TAG "MLBS_CORE"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
-// --- HELPER FUNCTIONS ---
-// Removing redefinitions as they are in feature/ToString.h
-// std::string HeroToString(int id) { return std::to_string(id); }
-// std::string RankToString(int id, int star) { return std::to_string(id); }
-// std::string SpellToString(int id) { return std::to_string(id); }
-
 // Helper to safely read a field
 #define READ_FIELD(target, type, offset) \
     if(offset > 0) target = *(type*)((uintptr_t)pawn + offset);
@@ -63,7 +57,6 @@ void new_UIRankHero_OnUpdate(void* instance) {
 }
 
 // --- Implementation of GetBattleStats ---
-// This was missing in the previous version, causing linker errors.
 BattleStats GetBattleStats() {
     BattleStats stats = {};
     void* showFightDataInstance = nullptr;
@@ -99,27 +92,16 @@ void UpdateBanPickState() {
         return;
     }
 
-    // UIRankHero Instance is Valid
     void* pawn = g_UIRankHero_Instance;
 
     BanPickState bpState = {};
     bpState.isOpen = true;
-
-    // Read Timers
-    // READ_FIELD(bpState.banTime, uint32_t, UIRankHero_iBanTimeSpan); // Check offsets
-    // READ_FIELD(bpState.pickTime, uint32_t, UIRankHero_iPickTimeSpan);
-
-    // Read Lists (Ban Order / Pick Order)
-    // Using helper functions or manual reading for List<T>
-    // Assuming we have offsets for UIRankHero_banOrder (List<uint32>)
-    // If not in GameClass.h, we need to add them. They were added.
 
     if (UIRankHero_banOrder > 0) {
         void* banOrderList = *(void**)((uintptr_t)pawn + UIRankHero_banOrder);
         if (banOrderList) {
             auto* list = (monoList<uint32_t>*)banOrderList;
             int size = list->getSize();
-            // Don't read excessively
             if (size > 20) size = 20;
             for (int i = 0; i < size; i++) {
                 bpState.banOrder.push_back(list->getItems()[i]);
@@ -139,7 +121,6 @@ void UpdateBanPickState() {
         }
     }
 
-    // Populate Global State
     {
         std::lock_guard<std::mutex> lock(g_State.stateMutex);
         g_State.banPickState = bpState;
@@ -149,9 +130,7 @@ void UpdateBanPickState() {
 void UpdateBattleStats() {
     // 1. Get Game Time
     float time = 0.0f;
-    void (*GetTime)() = (void (*)())BattleStaticInit_GetTime;
-    if (GetTime) {
-         // It returns float, cast function pointer correctly
+    if (BattleStaticInit_GetTime) {
          float (*GetTimeFunc)() = (float (*)())BattleStaticInit_GetTime;
          time = GetTimeFunc();
     }
@@ -159,18 +138,63 @@ void UpdateBattleStats() {
     // 2. Get Team Stats
     BattleStats stats = GetBattleStats();
 
-    std::lock_guard<std::mutex> lock(g_State.stateMutex);
-    g_State.battleStats.gameTime = time;
-    g_State.battleStats.campAScore = stats.iCampAKill;
-    g_State.battleStats.campBScore = stats.iCampBKill;
-    g_State.battleStats.campAGold = stats.CampAGold;
-    g_State.battleStats.campBGold = stats.CampBGold;
-    g_State.battleStats.campAKillTower = stats.CampAKillTower;
-    g_State.battleStats.campBKillTower = stats.CampBKillTower;
-    g_State.battleStats.campAKillLord = stats.CampAKillLingZhu;
-    g_State.battleStats.campBKillLord = stats.CampBKillLingZhu;
-    g_State.battleStats.campAKillTurtle = stats.CampAKillShenGui;
-    g_State.battleStats.campBKillTurtle = stats.CampBKillShenGui;
+    // 3. Get Individual Player Stats from BattleData.heroInfoList
+    std::vector<PlayerBattleData> localBattlePlayers;
+    void* battleDataInstance = nullptr;
+    Il2CppGetStaticFieldValue(OBFUSCATE("Assembly-CSharp.dll"), "", OBFUSCATE("BattleData"), OBFUSCATE("Instance"), &battleDataInstance);
+
+    if (battleDataInstance && BattleData_heroInfoList > 0) {
+        void* dictPtr = *(void**)((uintptr_t)battleDataInstance + BattleData_heroInfoList);
+        if (dictPtr) {
+            // Manually iterate dictionary structure or use helper if available.
+            // Dictionary<uint32_t, FightHeroInfo>
+            auto* dictionary = (Dictionary<uint32_t, void*>*)dictPtr;
+            // Warning: Dictionary layout might vary, but Il2Cpp.h defines a standard one.
+
+            if (dictionary->entries && dictionary->count > 0) {
+                auto entries = dictionary->entries->toCPPlist();
+                for (auto& entry : entries) {
+                    void* fightHeroInfo = entry.value;
+                    if (!fightHeroInfo) continue;
+
+                    PlayerBattleData pb = {};
+                    void* pawn = fightHeroInfo; // Alias for READ_FIELD macro
+
+                    READ_FIELD(pb.uGuid, uint32_t, FightHeroInfo_m_uGuid); // Note: struct has uint64, dump says uint32? Dump says uint32 m_uGuid;
+                    // Wait, RoomData lUid is ulong (64), FightHeroInfo m_uGuid is uint (32) usually short ID.
+                    // But FightHeroInfo also has m_AccountId (uint64). Let's grab that for matching if needed.
+                    // Let's rely on m_uGuid for now as it's common in battle.
+
+                    READ_STRING(pb.playerName, FightHeroInfo_m_PlayerName);
+                    READ_FIELD(pb.campType, int32_t, FightHeroInfo_m_CampType); // uint32 in dump, int32 in struct
+                    READ_FIELD(pb.kill, uint32_t, FightHeroInfo_m_KillNum);
+                    READ_FIELD(pb.death, uint32_t, FightHeroInfo_m_DeadNum);
+                    READ_FIELD(pb.assist, uint32_t, FightHeroInfo_m_AssistNum);
+                    READ_FIELD(pb.gold, uint32_t, FightHeroInfo_m_Gold);
+                    READ_FIELD(pb.totalGold, uint32_t, FightHeroInfo_m_TotalGold);
+
+                    localBattlePlayers.push_back(pb);
+                }
+            }
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(g_State.stateMutex);
+        g_State.battleStats.gameTime = time;
+        g_State.battleStats.campAScore = stats.iCampAKill;
+        g_State.battleStats.campBScore = stats.iCampBKill;
+        g_State.battleStats.campAGold = stats.CampAGold;
+        g_State.battleStats.campBGold = stats.CampBGold;
+        g_State.battleStats.campAKillTower = stats.CampAKillTower;
+        g_State.battleStats.campBKillTower = stats.CampBKillTower;
+        g_State.battleStats.campAKillLord = stats.CampAKillLingZhu;
+        g_State.battleStats.campBKillLord = stats.CampBKillLingZhu;
+        g_State.battleStats.campAKillTurtle = stats.CampAKillShenGui;
+        g_State.battleStats.campBKillTurtle = stats.CampBKillShenGui;
+
+        g_State.battlePlayers = localBattlePlayers;
+    }
 }
 
 void UpdatePlayerInfo() {
@@ -206,7 +230,76 @@ void UpdatePlayerInfo() {
         READ_FIELD(p.banHero, uint32_t, SystemData_RoomData_banHero);
         READ_FIELD(p.bRobot, bool, SystemData_RoomData_bRobot);
         READ_FIELD(p.bNewPlayer, bool, SystemData_RoomData_bNewPlayer);
-        READ_FIELD(p.uiHeroIDChoose, uint32_t, SystemData_RoomData_uiHeroIDChoose); // Picked Hero ID
+        READ_FIELD(p.uiHeroIDChoose, uint32_t, SystemData_RoomData_uiHeroIDChoose);
+
+        // Raw Data (Massive list)
+        READ_FIELD(p.bAutoConditionNew, bool, SystemData_RoomData_bAutoConditionNew);
+        READ_FIELD(p.bShowSeasonAchieve, bool, SystemData_RoomData_bShowSeasonAchieve);
+        READ_FIELD(p.iStyleBoardId, uint32_t, SystemData_RoomData_iStyleBoardId);
+        READ_FIELD(p.iMatchEffectId, uint32_t, SystemData_RoomData_iMatchEffectId);
+        READ_FIELD(p.iDayBreakNo1Count, uint32_t, SystemData_RoomData_iDayBreakNo1Count);
+        READ_FIELD(p.bAutoReadySelect, bool, SystemData_RoomData_bAutoReadySelect);
+        READ_FIELD(p.headID, uint32_t, SystemData_RoomData_headID);
+        READ_FIELD(p.uiSex, uint32_t, SystemData_RoomData_uiSex);
+        READ_FIELD(p.country, uint32_t, SystemData_RoomData_country);
+        READ_STRING(p.facePath, SystemData_RoomData_facePath);
+        READ_FIELD(p.faceBorder, uint32_t, SystemData_RoomData_faceBorder);
+        READ_FIELD(p.bStarVip, bool, SystemData_RoomData_bStarVip);
+        READ_FIELD(p.bMCStarVip, bool, SystemData_RoomData_bMCStarVip);
+        READ_FIELD(p.bMCStarVipPlus, bool, SystemData_RoomData_bMCStarVipPlus);
+        READ_FIELD(p.ulRoomID, uint64_t, SystemData_RoomData_ulRoomID);
+        READ_FIELD(p.iConBlackRoomId, uint64_t, SystemData_RoomData_iConBlackRoomId);
+        READ_FIELD(p.uiBattlePlayerType, uint32_t, SystemData_RoomData_uiBattlePlayerType);
+        READ_STRING(p.sThisLoginCountry, SystemData_RoomData_sThisLoginCountry);
+        READ_STRING(p.sCreateRoleCountry, SystemData_RoomData_sCreateRoleCountry);
+        READ_FIELD(p.uiLanguage, uint32_t, SystemData_RoomData_uiLanguage);
+        READ_FIELD(p.bIsOpenLive, bool, SystemData_RoomData_bIsOpenLive);
+        READ_FIELD(p.iTeamId, uint64_t, SystemData_RoomData_iTeamId);
+        READ_FIELD(p.iTeamNationId, uint64_t, SystemData_RoomData_iTeamNationId);
+        READ_STRING(p._steamName, SystemData_RoomData__steamName);
+        READ_STRING(p._steamSimpleName, SystemData_RoomData__steamSimpleName);
+        READ_FIELD(p.iCertify, uint32_t, SystemData_RoomData_iCertify);
+        READ_FIELD(p.uiPVPRank, uint32_t, SystemData_RoomData_uiPVPRank);
+        READ_FIELD(p.bRankReview, bool, SystemData_RoomData_bRankReview);
+        READ_FIELD(p.iElo, uint32_t, SystemData_RoomData_iElo);
+        READ_FIELD(p.uiRoleLevel, uint32_t, SystemData_RoomData_uiRoleLevel);
+        READ_FIELD(p.iRoad, uint32_t, SystemData_RoomData_iRoad);
+        READ_FIELD(p.uiSkinSource, uint32_t, SystemData_RoomData_uiSkinSource);
+        READ_FIELD(p.iFighterType, uint32_t, SystemData_RoomData_iFighterType);
+        READ_FIELD(p.iWorldCupSupportCountry, uint32_t, SystemData_RoomData_iWorldCupSupportCountry);
+        READ_FIELD(p.iHeroLevel, uint32_t, SystemData_RoomData_iHeroLevel);
+        READ_FIELD(p.iHeroSubLevel, uint32_t, SystemData_RoomData_iHeroSubLevel);
+        READ_FIELD(p.iHeroPowerLevel, uint32_t, SystemData_RoomData_iHeroPowerLevel);
+        READ_FIELD(p.iActCamp, uint32_t, SystemData_RoomData_iActCamp);
+        READ_FIELD(p.mHeroMission, uint32_t, SystemData_RoomData_mHeroMission);
+        READ_FIELD(p.mSkinPaint, uint32_t, SystemData_RoomData_mSkinPaint);
+        READ_STRING(p.sClientVersion, SystemData_RoomData_sClientVersion);
+        READ_FIELD(p.uiHolyStatue, uint32_t, SystemData_RoomData_uiHolyStatue);
+        READ_FIELD(p.uiKamon, uint32_t, SystemData_RoomData_uiKamon);
+        READ_FIELD(p.uiUserMapID, uint32_t, SystemData_RoomData_uiUserMapID);
+        READ_FIELD(p.iSurviveRank, uint32_t, SystemData_RoomData_iSurviveRank);
+        READ_FIELD(p.iDefenceRankID, uint32_t, SystemData_RoomData_iDefenceRankID);
+        READ_FIELD(p.iLeagueWCNum, uint32_t, SystemData_RoomData_iLeagueWCNum);
+        READ_FIELD(p.iLeagueFCNum, uint32_t, SystemData_RoomData_iLeagueFCNum);
+        READ_FIELD(p.iMPLCertifyTime, uint32_t, SystemData_RoomData_iMPLCertifyTime);
+        READ_FIELD(p.iMPLCertifyID, uint32_t, SystemData_RoomData_iMPLCertifyID);
+        READ_FIELD(p.iHeroUseCount, uint32_t, SystemData_RoomData_iHeroUseCount);
+        READ_FIELD(p.bMythEvaled, bool, SystemData_RoomData_bMythEvaled);
+        READ_FIELD(p.iDefenceFlag, uint32_t, SystemData_RoomData_iDefenceFlag);
+        READ_FIELD(p.iDefenPoint, uint32_t, SystemData_RoomData_iDefenPoint);
+        READ_FIELD(p.iDefenceMap, uint32_t, SystemData_RoomData_iDefenceMap);
+        READ_FIELD(p.iAIType, uint32_t, SystemData_RoomData_iAIType);
+        READ_FIELD(p.iAISeed, uint32_t, SystemData_RoomData_iAISeed);
+        READ_STRING(p.sAiName, SystemData_RoomData_sAiName);
+        READ_FIELD(p.iWarmValue, uint32_t, SystemData_RoomData_iWarmValue);
+        READ_FIELD(p.uiAircraftIDChooose, uint32_t, SystemData_RoomData_uiAircraftIDChooose);
+        READ_FIELD(p.uiHeroSkinIDChoose, uint32_t, SystemData_RoomData_uiHeroSkinIDChoose);
+        READ_FIELD(p.uiMapIDChoose, uint32_t, SystemData_RoomData_uiMapIDChoose);
+        READ_FIELD(p.uiMapSkinIDChoose, uint32_t, SystemData_RoomData_uiMapSkinIDChoose);
+        READ_FIELD(p.uiDefenceRankScore, uint32_t, SystemData_RoomData_uiDefenceRankScore);
+        READ_FIELD(p.bBanChat, bool, SystemData_RoomData_bBanChat);
+        READ_FIELD(p.iChatBanFinishTime, uint32_t, SystemData_RoomData_iChatBanFinishTime);
+        READ_FIELD(p.iChatBanBattleNum, uint32_t, SystemData_RoomData_iChatBanBattleNum);
         
         // Legacy/Computed
         p.name = p._sName;
@@ -279,14 +372,26 @@ void MonitorBattleState() {
              for (size_t i = 0; i < g_State.players.size(); ++i) {
                  const auto& p = g_State.players[i];
                  ss << "{";
+                 // Minimal info for list, full details can be on demand but user wants raw here
+                 ss << "\"lUid\":" << p.lUid << ",";
                  ss << "\"name\":\"" << p.name << "\",";
-                 ss << "\"rank\":\"" << p.rank << "\",";
-                 ss << "\"hero\":\"" << p.heroName << "\",";
                  ss << "\"camp\":" << p.camp << ",";
-                 ss << "\"uid\":\"" << p.uid << "\",";
-                 ss << "\"spell\":\"" << p.spell << "\",";
-                 ss << "\"ban_hero\":" << p.banHero << ",";
-                 ss << "\"pick_hero\":" << p.uiHeroIDChoose; // Using heroId or uiHeroIDChoose
+                 ss << "\"heroid\":" << p.heroid << ",";
+                 ss << "\"bRobot\":" << (p.bRobot ? "true" : "false") << ",";
+                 ss << "\"uiRankLevel\":" << p.uiRankLevel << ",";
+                 ss << "\"iMythPoint\":" << p.iMythPoint << ",";
+                 ss << "\"uiZoneId\":" << p.uiZoneId << ",";
+                 ss << "\"banHero\":" << p.banHero << ",";
+                 ss << "\"pickHero\":" << p.uiHeroIDChoose << ",";
+
+                 // Adding some raw fields requested
+                 ss << "\"bAutoConditionNew\":" << (p.bAutoConditionNew ? "true" : "false") << ",";
+                 ss << "\"iStyleBoardId\":" << p.iStyleBoardId << ",";
+                 ss << "\"iMatchEffectId\":" << p.iMatchEffectId << ",";
+                 ss << "\"sThisLoginCountry\":\"" << p.sThisLoginCountry << "\",";
+                 ss << "\"uiLanguage\":" << p.uiLanguage << ",";
+                 ss << "\"iTeamId\":" << p.iTeamId;
+
                  ss << "}";
                  if (i < g_State.players.size() - 1) ss << ",";
              }
@@ -299,20 +404,26 @@ void MonitorBattleState() {
              std::lock_guard<std::mutex> lock(g_State.stateMutex);
              ss << "\"battle_stats\":{";
              ss << "\"time\":" << g_State.battleStats.gameTime << ",";
-             ss << "\"camp_a\":{";
-             ss << "\"score\":" << g_State.battleStats.campAScore << ",";
-             ss << "\"gold\":" << g_State.battleStats.campAGold << ",";
-             ss << "\"tower\":" << g_State.battleStats.campAKillTower << ",";
-             ss << "\"lord\":" << g_State.battleStats.campAKillLord << ",";
-             ss << "\"turtle\":" << g_State.battleStats.campAKillTurtle;
-             ss << "},";
-             ss << "\"camp_b\":{";
-             ss << "\"score\":" << g_State.battleStats.campBScore << ",";
-             ss << "\"gold\":" << g_State.battleStats.campBGold << ",";
-             ss << "\"tower\":" << g_State.battleStats.campBKillTower << ",";
-             ss << "\"lord\":" << g_State.battleStats.campBKillLord << ",";
-             ss << "\"turtle\":" << g_State.battleStats.campBKillTurtle;
-             ss << "}";
+             ss << "\"camp_a\":{\"score\":" << g_State.battleStats.campAScore << ",\"gold\":" << g_State.battleStats.campAGold << "},";
+             ss << "\"camp_b\":{\"score\":" << g_State.battleStats.campBScore << ",\"gold\":" << g_State.battleStats.campBGold << "},";
+
+             // Individual Player Stats
+             ss << "\"players\":[";
+             for (size_t i = 0; i < g_State.battlePlayers.size(); ++i) {
+                 const auto& bp = g_State.battlePlayers[i];
+                 ss << "{";
+                 ss << "\"uGuid\":" << bp.uGuid << ",";
+                 ss << "\"name\":\"" << bp.playerName << "\",";
+                 ss << "\"camp\":" << bp.campType << ",";
+                 ss << "\"kill\":" << bp.kill << ",";
+                 ss << "\"death\":" << bp.death << ",";
+                 ss << "\"assist\":" << bp.assist << ",";
+                 ss << "\"gold\":" << bp.gold << ",";
+                 ss << "\"totalGold\":" << bp.totalGold;
+                 ss << "}";
+                 if (i < g_State.battlePlayers.size() - 1) ss << ",";
+             }
+             ss << "]";
              ss << "},";
         }
 
@@ -321,21 +432,18 @@ void MonitorBattleState() {
              std::lock_guard<std::mutex> lock(g_State.stateMutex);
              ss << "\"ban_pick\":{";
              ss << "\"is_open\":" << (g_State.banPickState.isOpen ? "true" : "false") << ",";
-
              ss << "\"ban_order\":[";
              for(size_t i=0; i<g_State.banPickState.banOrder.size(); i++) {
                  ss << g_State.banPickState.banOrder[i];
                  if(i < g_State.banPickState.banOrder.size() - 1) ss << ",";
              }
              ss << "],";
-
              ss << "\"pick_order\":[";
              for(size_t i=0; i<g_State.banPickState.pickOrder.size(); i++) {
                  ss << g_State.banPickState.pickOrder[i];
                  if(i < g_State.banPickState.pickOrder.size() - 1) ss << ",";
              }
              ss << "]";
-
              ss << "}";
         }
 

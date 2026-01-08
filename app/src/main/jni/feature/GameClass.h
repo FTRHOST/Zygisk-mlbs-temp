@@ -2,9 +2,6 @@
 
 #include "../Include.h"
 
-#pragma once
-
-
 //Class Camera
 #define Camera_get_main (uintptr_t) Il2CppGetMethodOffset("UnityEngine.dll", "UnityEngine", "Camera", "get_main")
 #define Camera_WorldToScreenPoint (uintptr_t) Il2CppGetMethodOffset("UnityEngine.dll", "UnityEngine", "Camera", "WorldToScreenPoint", 1)
@@ -118,7 +115,7 @@ int GetBattleState(void* instance) {
 //Class SystemData
 #define SystemData_GetBattlePlayerInfo (uintptr_t) Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE(""), OBFUSCATE("SystemData"), OBFUSCATE("GetBattlePlayerInfo"))
 
-//Class SystemData.RoomData
+//Class SystemData.RoomData (Expanded)
 #define SystemData_RoomData_bAutoConditionNew (uintptr_t) Il2CppGetFieldOffset("Assembly-CSharp.dll", "", "SystemData/RoomData", "bAutoConditionNew")
 #define SystemData_RoomData_bShowSeasonAchieve (uintptr_t) Il2CppGetFieldOffset("Assembly-CSharp.dll", "", "SystemData/RoomData", "bShowSeasonAchieve")
 #define SystemData_RoomData_iStyleBoardId (uintptr_t) Il2CppGetFieldOffset("Assembly-CSharp.dll", "", "SystemData/RoomData", "iStyleBoardId")
@@ -221,7 +218,7 @@ int GetBattleState(void* instance) {
 
 #define SystemData_StopCheckMD5 (uintptr_t) Il2CppGetMethodOffset("Assembly-CSharp.dll", "", "SystemData", OBFUSCATE("StopCheckMD5"))
 
-//Duplikasi Room InfoTable
+//Duplikasi Room InfoTable (Consider removing duplicates if above covers them, but keeping for safety of existing code)
 #define RoomData_steamSimpleName (uintptr_t) Il2CppGetFieldOffset("Assembly-CSharp.dll", "", "SystemData/RoomData", "_steamSimpleName")
 #define RoomData_steamName (uintptr_t) Il2CppGetFieldOffset("Assembly-CSharp.dll", "", "SystemData/RoomData", "_steamName")
 #define RoomData_lUid (uintptr_t) Il2CppGetFieldOffset("Assembly-CSharp.dll", "", "SystemData/RoomData", OBFUSCATE("lUid"))
@@ -315,6 +312,17 @@ void StopMD5Check(){
 
 // Battle Stats
 #define BattleStaticInit_GetTime (uintptr_t) Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE(""), OBFUSCATE("BattleStaticInit"), OBFUSCATE("GetTime"))
+
+// BattleData & FightHeroInfo (For infobattle)
+#define BattleData_heroInfoList (uintptr_t) Il2CppGetFieldOffset("Assembly-CSharp.dll", "", "BattleData", "heroInfoList")
+#define FightHeroInfo_m_KillNum (uintptr_t) Il2CppGetFieldOffset("Assembly-CSharp.dll", "MTTDProto", "FightHeroInfo", "m_KillNum")
+#define FightHeroInfo_m_DeadNum (uintptr_t) Il2CppGetFieldOffset("Assembly-CSharp.dll", "MTTDProto", "FightHeroInfo", "m_DeadNum")
+#define FightHeroInfo_m_AssistNum (uintptr_t) Il2CppGetFieldOffset("Assembly-CSharp.dll", "MTTDProto", "FightHeroInfo", "m_AssistNum")
+#define FightHeroInfo_m_Gold (uintptr_t) Il2CppGetFieldOffset("Assembly-CSharp.dll", "MTTDProto", "FightHeroInfo", "m_Gold")
+#define FightHeroInfo_m_TotalGold (uintptr_t) Il2CppGetFieldOffset("Assembly-CSharp.dll", "MTTDProto", "FightHeroInfo", "m_TotalGold")
+#define FightHeroInfo_m_PlayerName (uintptr_t) Il2CppGetFieldOffset("Assembly-CSharp.dll", "MTTDProto", "FightHeroInfo", "m_PlayerName")
+#define FightHeroInfo_m_uGuid (uintptr_t) Il2CppGetFieldOffset("Assembly-CSharp.dll", "MTTDProto", "FightHeroInfo", "m_uGuid")
+#define FightHeroInfo_m_CampType (uintptr_t) Il2CppGetFieldOffset("Assembly-CSharp.dll", "MTTDProto", "FightHeroInfo", "m_CampType")
 
 //Class UIRankHero.ChangeShow
 #define UIRankHero_ChangeShow_TrySendUseSkin (uintptr_t) Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE(""), OBFUSCATE("UIRankHero/ChangeShow"), OBFUSCATE("TrySendUseSkin"), 2)
