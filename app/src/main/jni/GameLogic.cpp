@@ -292,6 +292,7 @@ void UpdatePlayerInfo() {
         READ_STRING(p.sAiName, SystemData_RoomData_sAiName);
         READ_FIELD(p.iWarmValue, uint32_t, SystemData_RoomData_iWarmValue);
         READ_FIELD(p.uiAircraftIDChooose, uint32_t, SystemData_RoomData_uiAircraftIDChooose);
+        READ_FIELD(p.uiHeroIDChoose, uint32_t, SystemData_RoomData_uiHeroIDChoose);
         READ_FIELD(p.uiHeroSkinIDChoose, uint32_t, SystemData_RoomData_uiHeroSkinIDChoose);
         READ_FIELD(p.uiMapIDChoose, uint32_t, SystemData_RoomData_uiMapIDChoose);
         READ_FIELD(p.uiMapSkinIDChoose, uint32_t, SystemData_RoomData_uiMapSkinIDChoose);
