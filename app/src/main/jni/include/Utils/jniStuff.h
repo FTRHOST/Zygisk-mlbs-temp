@@ -5,7 +5,7 @@ JNIEnv* getEnv() {
     JNIEnv *env;
     int status = jvm->GetEnv((void**)&env, JNI_VERSION_1_6);
     if(status < 0) {
-        status = jvm->AttachCurrentThread(&env, NULL);
+        status = jvm->AttachCurrentThread((void**)&env, NULL);
         if(status < 0) {
             return nullptr;
         }
@@ -29,7 +29,7 @@ const char *getClipboardText() {
     const char *result;
     JNIEnv *env;
     
-    jvm->AttachCurrentThread(&env, NULL);
+    jvm->AttachCurrentThread((void**)&env, NULL);
     
     auto looperClass = env->FindClass("android/os/Looper");
     auto prepareMethod = env->GetStaticMethodID(looperClass, "prepare", "()V");
@@ -68,7 +68,7 @@ int ShowSoftKeyboardInput() {
 	jint flags = 0;
 	
 	JNIEnv *env;
-	jvm->AttachCurrentThread(&env, NULL);
+	jvm->AttachCurrentThread((void**)&env, NULL);
 	
 	jclass looperClass = env->FindClass("android/os/Looper");
 	auto prepareMethod = env->GetStaticMethodID(looperClass, "prepare", "()V");
