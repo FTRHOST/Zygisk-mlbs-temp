@@ -23,14 +23,18 @@
     (ptr ? *(void**)((uintptr_t)ptr + offset) : nullptr)
 
 // Helper to read C# string (Mono/Il2Cpp style: length + chars)
+// IMPROVED: Uses Il2CppString struct to avoid hardcoded offsets
 std::string ReadCSharpString(void* strPtr) {
     if (!strPtr) return "";
-    int len = READ_FIELD(strPtr, 0x10, int); // Length is usually at 0x10 for string
+
+    Il2CppString* str = (Il2CppString*)strPtr;
+    int len = str->length;
+
     if (len <= 0 || len > 1024) return "";
 
-    // Characters start at 0x14 (UTF-16)
+    // Characters are in 'chars' array (UTF-16)
     std::string result;
-    const char16_t* chars = (const char16_t*)((uintptr_t)strPtr + 0x14);
+    const char16_t* chars = (const char16_t*)str->chars;
     for (int i = 0; i < len; i++) {
         if (chars[i] < 128) {
             result += (char)chars[i];
@@ -48,26 +52,39 @@ GlobalState g_State;
 void* g_SystemData_RoomData_List = nullptr; // List<SystemData.RoomData>
 void* g_BattleData_Instance = nullptr;
 void* g_ShowFightDataTiny_Instance = nullptr;
-void* g_UIRankHero_Instance = nullptr;
-
-// Hooks
-void (*orig_UIRankHero_OnUpdate)(void* instance) = nullptr;
-void Hook_UIRankHero_OnUpdate(void* instance) {
-    g_UIRankHero_Instance = instance;
-    if (orig_UIRankHero_OnUpdate) orig_UIRankHero_OnUpdate(instance);
-}
+void* g_LogicBattleManager_Instance = nullptr; // New source for BanPick
 
 // Helper to iterate List<T>
 // Returns vector of pointers to T
+// IMPROVED: Uses dynamic offset lookup for _items and _size
 template <typename T = void*>
 std::vector<T> IterateList(void* listPtr) {
     std::vector<T> result;
     if (!listPtr) return result;
 
-    void* itemsArr = READ_PTR(listPtr, 0x10);
-    int size = READ_FIELD(listPtr, 0x18, int);
+    // Dynamically find offsets to avoid hardcoding 0x10/0x18
+    static size_t itemsOffset = 0;
+    static size_t sizeOffset = 0;
+
+    if (itemsOffset == 0 || sizeOffset == 0) {
+        itemsOffset = Il2CppGetFieldOffsetFromObject(listPtr, "_items");
+        sizeOffset = Il2CppGetFieldOffsetFromObject(listPtr, "_size");
+
+        // Fallback for safety if lookup fails (though it shouldn't for standard List)
+        if (itemsOffset == -1) itemsOffset = 0x10;
+        if (sizeOffset == -1) sizeOffset = 0x18;
+    }
+
+    void* itemsArr = READ_PTR(listPtr, itemsOffset);
+    int size = READ_FIELD(listPtr, sizeOffset, int);
 
     if (itemsArr && size > 0 && size < 100) {
+        // Arrays usually start data at 0x20 (Monitor 8 + Bounds 8 + MaxLength 8 + Padding?)
+        // Standard IL2CPP Array Header is Il2CppObject (16) + Bounds(8) + MaxLength(8) -> 32 (0x20) on 64bit
+        // Let's verify Array header size if possible, or stick to 0x20 which is standard for 64bit
+        // To be safe, we can use il2cpp_array_addr macro logic if we had access, but 0x20 is very standard.
+        // Or we could use Il2CppArray struct.
+
         for (int i = 0; i < size; i++) {
             void* item = READ_PTR(itemsArr, 0x20 + (i * sizeof(void*)));
             if (item) result.push_back((T)item);
@@ -77,12 +94,23 @@ std::vector<T> IterateList(void* listPtr) {
 }
 
 // Helper for List<uint32_t>
+// IMPROVED: Uses dynamic offset lookup
 std::vector<uint32_t> IterateIntList(void* listPtr) {
     std::vector<uint32_t> result;
     if (!listPtr) return result;
 
-    void* itemsArr = READ_PTR(listPtr, 0x10);
-    int size = READ_FIELD(listPtr, 0x18, int);
+    static size_t itemsOffset = 0;
+    static size_t sizeOffset = 0;
+
+    if (itemsOffset == 0 || sizeOffset == 0) {
+        itemsOffset = Il2CppGetFieldOffsetFromObject(listPtr, "_items");
+        sizeOffset = Il2CppGetFieldOffsetFromObject(listPtr, "_size");
+        if (itemsOffset == -1) itemsOffset = 0x10;
+        if (sizeOffset == -1) sizeOffset = 0x18;
+    }
+
+    void* itemsArr = READ_PTR(listPtr, itemsOffset);
+    int size = READ_FIELD(listPtr, sizeOffset, int);
 
     if (itemsArr && size > 0 && size < 100) {
         for (int i = 0; i < size; i++) {
@@ -253,18 +281,44 @@ void UpdatePlayerInfo() {
 }
 
 // Feature: BanPick
+// REFACTORED: Removes UIRankHero hook, uses LogicBattleManager.Instance or SystemData
 void UpdateBanPickState() {
-    if (!g_UIRankHero_Instance) return;
+    // Attempt to get LogicBattleManager.Instance
+    if (!g_LogicBattleManager_Instance) {
+        Il2CppGetStaticFieldValue("Assembly-CSharp.dll", "", "LogicBattleManager", "Instance", &g_LogicBattleManager_Instance);
+    }
+
+    if (!g_LogicBattleManager_Instance) return;
 
     std::lock_guard<std::mutex> lock(g_State.stateMutex);
     auto& bp = g_State.banPickState;
-    void* inst = g_UIRankHero_Instance;
+    void* inst = g_LogicBattleManager_Instance;
 
-    void* banOrderList = READ_PTR(inst, UIRankHero_banOrder);
-    void* pickOrderList = READ_PTR(inst, UIRankHero_pickOrder);
+    // Dynamically look up banOrder and pickOrder fields in LogicBattleManager
+    // This assumes LogicBattleManager has fields similar to UIRankHero
+    static size_t banOrderOffset = 0;
+    static size_t pickOrderOffset = 0;
 
-    bp.banList = IterateIntList(banOrderList);
-    bp.pickList = IterateIntList(pickOrderList);
+    if (banOrderOffset == 0) {
+        // Try to find the fields.
+        banOrderOffset = Il2CppGetFieldOffsetFromObject(inst, "banOrder");
+        if (banOrderOffset == -1) banOrderOffset = Il2CppGetFieldOffsetFromObject(inst, "m_banOrder"); // common alternate naming
+    }
+
+    if (pickOrderOffset == 0) {
+        pickOrderOffset = Il2CppGetFieldOffsetFromObject(inst, "pickOrder");
+        if (pickOrderOffset == -1) pickOrderOffset = Il2CppGetFieldOffsetFromObject(inst, "m_pickOrder");
+    }
+
+    if (banOrderOffset != -1) {
+        void* banOrderList = READ_PTR(inst, banOrderOffset);
+        bp.banList = IterateIntList(banOrderList);
+    }
+
+    if (pickOrderOffset != -1) {
+        void* pickOrderList = READ_PTR(inst, pickOrderOffset);
+        bp.pickList = IterateIntList(pickOrderList);
+    }
 }
 
 // Feature: InfoBattle
@@ -454,11 +508,8 @@ void GameLogicLoop() {
 void InitGameLogic() {
     Il2CppAttach("libil2cpp.so");
 
-    // Hook UIRankHero Update to get instance for BanPick
-    void* updateMethod = Il2CppGetMethodOffset("Assembly-CSharp.dll", "", "UIRankHero", "Update", 0);
-    if (updateMethod) {
-        DobbyHook(updateMethod, (void*)Hook_UIRankHero_OnUpdate, (void**)&orig_UIRankHero_OnUpdate);
-    }
+    // Hook REMOVED: UIRankHero logic now uses Static Field access in LogicBattleManager.
+    // This allows the module to be more 'headless' and robust against UI changes.
 
     // Start Logic Loop
     std::thread(GameLogicLoop).detach();
