@@ -58,6 +58,7 @@ void Hook_UIRankHero_OnUpdate(void* instance) {
 }
 
 // Helper to iterate List<T>
+// Returns vector of pointers to T
 template <typename T = void*>
 std::vector<T> IterateList(void* listPtr) {
     std::vector<T> result;
@@ -102,6 +103,8 @@ std::vector<TValue> IterateDictionaryValues(void* dictPtr) {
     int count = READ_FIELD(dictPtr, 0x20, int); // count
 
     if (entriesPtr && count > 0 && count < 100) {
+        // Entry size: 0x18 (24 bytes)
+        // 0x0: hashCode, 0x4: next, 0x8: key, 0x10: value
         uintptr_t dataStart = (uintptr_t)entriesPtr + 0x20;
         for (int i = 0; i < count; i++) {
              uintptr_t entryAddr = dataStart + (i * 0x18);
@@ -115,7 +118,9 @@ std::vector<TValue> IterateDictionaryValues(void* dictPtr) {
 
 // Feature: InfoRoom
 void UpdatePlayerInfo() {
+    // 1. Find List<SystemData.RoomData>
     if (!g_SystemData_RoomData_List) {
+        // Try to find m_quickMatchRoomPayerList in SystemData
         Il2CppGetStaticFieldValue("Assembly-CSharp.dll", "", "SystemData", "m_quickMatchRoomPayerList", &g_SystemData_RoomData_List);
     }
 
@@ -126,12 +131,13 @@ void UpdatePlayerInfo() {
 
     room.players.clear();
 
+    // Iterate the list
     std::vector<void*> roomPlayers = IterateList<void*>(g_SystemData_RoomData_List);
 
     for (void* playerObj : roomPlayers) {
         if (!playerObj) continue;
         
-        PlayerData p;
+        PlayerData p = {}; // Zero initialize
 
         // --- Basic Fields ---
         p.ulUid = READ_FIELD(playerObj, SystemData_RoomData_lUid, uint64_t);
@@ -139,7 +145,11 @@ void UpdatePlayerInfo() {
         p.uiCampType = READ_FIELD(playerObj, SystemData_RoomData_iCamp, uint32_t);
         void* namePtr = READ_PTR(playerObj, SystemData_RoomData_sName);
         p.sName = ReadCSharpString(namePtr);
-        p.uiHeroIDChoose = READ_FIELD(playerObj, SystemData_RoomData_heroid, uint32_t);
+
+        // Fix assignment for heroid
+        p.heroid = READ_FIELD(playerObj, SystemData_RoomData_heroid, uint32_t);
+        p.uiHeroIDChoose = p.heroid; // keep sync for now
+
         p.uiRankLevel = READ_FIELD(playerObj, SystemData_RoomData_uiRankLevel, uint32_t);
 
         // --- Detailed Fields ---
@@ -326,20 +336,25 @@ void UpdateBattleStats() {
     }
 }
 
+// Satisfy linker error
+void MonitorBattleState() {}
+
 std::string SerializeState() {
     std::lock_guard<std::mutex> lock(g_State.stateMutex);
     std::stringstream ss;
     ss << "{";
+    ss << "\"type\":\"heartbeat\",";
+    ss << "\"data\": {";
 
     // Room
-    ss << "\"room\":{";
+    ss << "\"room_info\":{"; // Changed to room_info
     ss << "\"players\":[";
     for (size_t i = 0; i < g_State.roomState.players.size(); ++i) {
         auto& p = g_State.roomState.players[i];
         ss << "{";
         ss << "\"ulUid\":" << p.ulUid << ",";
         ss << "\"sName\":\"" << p.sName << "\",";
-        ss << "\"heroid\":" << p.heroid << ","; // Used raw name
+        ss << "\"heroid\":" << p.heroid << ",";
         ss << "\"uiRankLevel\":" << p.uiRankLevel << ",";
 
         // Include detailed fields
@@ -352,7 +367,6 @@ std::string SerializeState() {
         ss << "\"iTeamId\":" << p.iTeamId << ",";
         ss << "\"iMythPoint\":" << p.iMythPoint << ",";
         ss << "\"uiHeroSkinIDChoose\":" << p.uiHeroSkinIDChoose;
-        // ... (add more as needed, but this covers major requested ones)
 
         ss << "}";
         if (i < g_State.roomState.players.size() - 1) ss << ",";
@@ -360,7 +374,7 @@ std::string SerializeState() {
     ss << "]},";
 
     // BanPick
-    ss << "\"banpick\":{";
+    ss << "\"ban_pick\":{"; // Changed to ban_pick
     ss << "\"banList\":[";
     for (size_t i = 0; i < g_State.banPickState.banList.size(); ++i) {
         ss << g_State.banPickState.banList[i];
@@ -375,12 +389,16 @@ std::string SerializeState() {
     ss << "]},";
 
     // Battle
-    ss << "\"battle\":{";
+    ss << "\"battle_stats\":{"; // Changed to battle_stats
     ss << "\"m_uiGameTime\":" << g_State.battleStats.m_uiGameTime << ",";
+    ss << "\"time\":" << g_State.battleStats.m_uiGameTime << ","; // Added alias 'time'
+
     ss << "\"m_CampAKill\":" << g_State.battleStats.m_CampAKill << ",";
     ss << "\"m_CampBKill\":" << g_State.battleStats.m_CampBKill << ",";
     ss << "\"m_CampAGold\":" << g_State.battleStats.m_CampAGold << ",";
     ss << "\"m_CampBGold\":" << g_State.battleStats.m_CampBGold << ",";
+    ss << "\"m_CampAExp\":" << g_State.battleStats.m_CampAExp << ",";
+    ss << "\"m_CampBExp\":" << g_State.battleStats.m_CampBExp << ",";
     ss << "\"m_CampAKillTower\":" << g_State.battleStats.m_CampAKillTower << ",";
     ss << "\"m_CampBKillTower\":" << g_State.battleStats.m_CampBKillTower << ",";
     ss << "\"m_CampAKillLingZhu\":" << g_State.battleStats.m_CampAKillLingZhu << ",";
@@ -396,14 +414,26 @@ std::string SerializeState() {
         ss << "\"m_KillNum\":" << p.m_KillNum << ",";
         ss << "\"m_DeadNum\":" << p.m_DeadNum << ",";
         ss << "\"m_AssistNum\":" << p.m_AssistNum << ",";
-        ss << "\"m_Gold\":" << p.m_Gold;
+        ss << "\"m_Gold\":" << p.m_Gold << ",";
+
+        // Add detailed fields requested
+        ss << "\"iKill3\":" << p.iKill3 << ",";
+        ss << "\"iKill4\":" << p.iKill4 << ",";
+        ss << "\"iKill5\":" << p.iKill5 << ",";
+        ss << "\"m_HurtHeroValue\":" << p.m_HurtHeroValue << ",";
+        ss << "\"m_HurtTowerValue\":" << p.m_HurtTowerValue << ",";
+        ss << "\"m_InjuredValue\":" << p.m_InjuredValue << ",";
+        ss << "\"m_DestroyTowerNum\":" << p.m_DestroyTowerNum << ",";
+        ss << "\"m_MonsterCoin\":" << p.m_MonsterCoin;
+
         ss << "}";
         if (i < g_State.battleStats.playerStats.size() - 1) ss << ",";
     }
     ss << "]";
     ss << "}";
 
-    ss << "}";
+    ss << "}"; // Close Data
+    ss << "}"; // Close Root
     return ss.str();
 }
 
