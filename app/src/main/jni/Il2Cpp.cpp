@@ -257,6 +257,18 @@ size_t Il2CppGetStaticFieldOffset(const char *image, const char *namespaze, cons
     return (unsigned long)((uint64_t)field->parent->static_fields + field->offset);
 }
 
+size_t Il2CppGetFieldOffsetFromObject(void* object, const char* name) {
+    if (!object) return -1;
+    // Il2CppObject struct definition has 'klass' as first member (union with vtable)
+    void* klass = ((Il2CppObject*)object)->klass;
+    if (!klass) return -1;
+
+    void* field = il2cpp_class_get_field_from_name(klass, name);
+    if (!field) return -1;
+
+    return il2cpp_field_get_offset(field);
+}
+
 bool Il2CppIsAssembliesLoaded() {
 	size_t size;
 	void **assemblies = il2cpp_domain_get_assemblies(il2cpp_domain_get(), &size);
