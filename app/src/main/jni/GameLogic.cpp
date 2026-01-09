@@ -70,18 +70,38 @@ BattleStats GetBattleStats() {
     if (showFightDataInstance) {
         auto* pData = static_cast<ShowFightDataTiny_Layout*>(showFightDataInstance);
 
-        stats.iCampAKill = pData->m_iCampAKill;
-        stats.iCampBKill = pData->m_iCampBKill;
-        stats.CampAGold = pData->m_CampAGold;
-        stats.CampBGold = pData->m_CampBGold;
-        stats.CampAExp = pData->m_CampAExp;
-        stats.CampBExp = pData->m_CampBExp;
-        stats.CampAKillTower = pData->m_CampAKillTower;
-        stats.CampBKillTower = pData->m_CampBKillTower;
-        stats.CampAKillLingZhu = pData->m_CampAKillLingZhu;
-        stats.CampBKillLingZhu = pData->m_CampBKillLingZhu;
-        stats.CampAKillShenGui = pData->m_CampAKillShenGui;
-        stats.CampBKillShenGui = pData->m_CampBKillShenGui;
+        // Read all fields mapped in ShowFightDataTiny_Layout
+        stats.m_levelOnSixMin = pData->m_levelOnSixMin;
+        stats.m_LevelOnTwelveMin = pData->m_LevelOnTwelveMin;
+        stats.m_KillNumCrossTower = pData->m_KillNumCrossTower;
+        stats.m_RevengeKillNum = pData->m_RevengeKillNum;
+        stats.m_ExtremeBackHomeNum = pData->m_ExtremeBackHomeNum;
+        stats.bLockGuidChanged = pData->bLockGuidChanged;
+        stats.m_BackHomeCount = pData->m_BackHomeCount;
+        stats.m_RecoverSuccessfullyCount = pData->m_RecoverSuccessfullyCount;
+        stats.m_BuyEquipCount = pData->m_BuyEquipCount;
+        stats.m_BuyEquipTime = pData->m_BuyEquipTime;
+        stats.m_uSurvivalCount = pData->m_uSurvivalCount;
+        stats.m_uPlayerCount = pData->m_uPlayerCount;
+
+        stats.m_iCampAKill = pData->m_iCampAKill;
+        stats.m_iCampBKill = pData->m_iCampBKill;
+        stats.m_CampAGold = pData->m_CampAGold;
+        stats.m_CampBGold = pData->m_CampBGold;
+        stats.m_CampAExp = pData->m_CampAExp;
+        stats.m_CampBExp = pData->m_CampBExp;
+        stats.m_CampAKillTower = pData->m_CampAKillTower;
+        stats.m_CampBKillTower = pData->m_CampBKillTower;
+        stats.m_CampAKillLingZhu = pData->m_CampAKillLingZhu;
+        stats.m_CampBKillLingZhu = pData->m_CampBKillLingZhu;
+        stats.m_CampAKillShenGui = pData->m_CampAKillShenGui;
+        stats.m_CampBKillShenGui = pData->m_CampBKillShenGui;
+        stats.m_CampAKillLingzhuOnSuperior = pData->m_CampAKillLingzhuOnSuperior;
+        stats.m_CampBKillLingzhuOnSuperior = pData->m_CampBKillLingzhuOnSuperior;
+        stats.m_CampASuperiorTime = pData->m_CampASuperiorTime;
+        stats.m_CampBSuperiorTime = pData->m_CampBSuperiorTime;
+        stats.m_iFirstBldTime = pData->m_iFirstBldTime;
+        stats.m_iFirstBldKiller = pData->m_iFirstBldKiller;
     }
 
     return stats;
@@ -139,7 +159,7 @@ void UpdateBattleStats() {
          time = GetTimeFunc();
     }
 
-    // 2. Get Team Stats
+    // 2. Get Team Stats (Using the expanded struct)
     BattleStats stats = GetBattleStats();
 
     // 3. Get Individual Player Stats from BattleData.heroInfoList
@@ -180,16 +200,51 @@ void UpdateBattleStats() {
     {
         std::lock_guard<std::mutex> lock(g_State.stateMutex);
         g_State.battleStats.gameTime = time;
-        g_State.battleStats.campAScore = stats.iCampAKill;
-        g_State.battleStats.campBScore = stats.iCampBKill;
-        g_State.battleStats.campAGold = stats.CampAGold;
-        g_State.battleStats.campBGold = stats.CampBGold;
-        g_State.battleStats.campAKillTower = stats.CampAKillTower;
-        g_State.battleStats.campBKillTower = stats.CampBKillTower;
-        g_State.battleStats.campAKillLord = stats.CampAKillLingZhu;
-        g_State.battleStats.campBKillLord = stats.CampBKillLingZhu;
-        g_State.battleStats.campAKillTurtle = stats.CampAKillShenGui;
-        g_State.battleStats.campBKillTurtle = stats.CampBKillShenGui;
+
+        // Copy all raw fields to Global State (Ensure names match GlobalState struct members)
+        g_State.battleStats.m_levelOnSixMin = stats.m_levelOnSixMin;
+        g_State.battleStats.m_LevelOnTwelveMin = stats.m_LevelOnTwelveMin;
+        g_State.battleStats.m_KillNumCrossTower = stats.m_KillNumCrossTower;
+        g_State.battleStats.m_RevengeKillNum = stats.m_RevengeKillNum;
+        g_State.battleStats.m_ExtremeBackHomeNum = stats.m_ExtremeBackHomeNum;
+        g_State.battleStats.bLockGuidChanged = stats.bLockGuidChanged;
+        g_State.battleStats.m_BackHomeCount = stats.m_BackHomeCount;
+        g_State.battleStats.m_RecoverSuccessfullyCount = stats.m_RecoverSuccessfullyCount;
+        g_State.battleStats.m_BuyEquipCount = stats.m_BuyEquipCount;
+        g_State.battleStats.m_BuyEquipTime = stats.m_BuyEquipTime;
+        g_State.battleStats.m_uSurvivalCount = stats.m_uSurvivalCount;
+        g_State.battleStats.m_uPlayerCount = stats.m_uPlayerCount;
+
+        g_State.battleStats.m_iCampAKill = stats.m_iCampAKill;
+        g_State.battleStats.m_iCampBKill = stats.m_iCampBKill;
+        g_State.battleStats.m_CampAGold = stats.m_CampAGold;
+        g_State.battleStats.m_CampBGold = stats.m_CampBGold;
+        g_State.battleStats.m_CampAExp = stats.m_CampAExp;
+        g_State.battleStats.m_CampBExp = stats.m_CampBExp;
+        g_State.battleStats.m_CampAKillTower = stats.m_CampAKillTower;
+        g_State.battleStats.m_CampBKillTower = stats.m_CampBKillTower;
+        g_State.battleStats.m_CampAKillLingZhu = stats.m_CampAKillLingZhu;
+        g_State.battleStats.m_CampBKillLingZhu = stats.m_CampBKillLingZhu;
+        g_State.battleStats.m_CampAKillShenGui = stats.m_CampAKillShenGui;
+        g_State.battleStats.m_CampBKillShenGui = stats.m_CampBKillShenGui;
+        g_State.battleStats.m_CampAKillLingzhuOnSuperior = stats.m_CampAKillLingzhuOnSuperior;
+        g_State.battleStats.m_CampBKillLingzhuOnSuperior = stats.m_CampBKillLingzhuOnSuperior;
+        g_State.battleStats.m_CampASuperiorTime = stats.m_CampASuperiorTime;
+        g_State.battleStats.m_CampBSuperiorTime = stats.m_CampBSuperiorTime;
+        g_State.battleStats.m_iFirstBldTime = stats.m_iFirstBldTime;
+        g_State.battleStats.m_iFirstBldKiller = stats.m_iFirstBldKiller;
+
+        // Also map legacy fields if relay server expects them (though we are moving to raw)
+        g_State.battleStats.campAScore = stats.m_iCampAKill;
+        g_State.battleStats.campBScore = stats.m_iCampBKill;
+        g_State.battleStats.campAGold = stats.m_CampAGold;
+        g_State.battleStats.campBGold = stats.m_CampBGold;
+        g_State.battleStats.campAKillTower = stats.m_CampAKillTower;
+        g_State.battleStats.campBKillTower = stats.m_CampBKillTower;
+        g_State.battleStats.campAKillLord = stats.m_CampAKillLingZhu;
+        g_State.battleStats.campBKillLord = stats.m_CampBKillLingZhu;
+        g_State.battleStats.campAKillTurtle = stats.m_CampAKillShenGui;
+        g_State.battleStats.campBKillTurtle = stats.m_CampBKillShenGui;
 
         g_State.battlePlayers = localBattlePlayers;
     }
@@ -486,8 +541,38 @@ void MonitorBattleState() {
              std::lock_guard<std::mutex> lock(g_State.stateMutex);
              ss << "\"battle_stats\":{";
              ss << "\"time\":" << g_State.battleStats.gameTime << ",";
-             ss << "\"camp_a\":{\"score\":" << g_State.battleStats.campAScore << ",\"gold\":" << g_State.battleStats.campAGold << "},";
-             ss << "\"camp_b\":{\"score\":" << g_State.battleStats.campBScore << ",\"gold\":" << g_State.battleStats.campBGold << "},";
+
+             // RAW FIELDS FROM ShowFightDataTiny (as requested)
+             ss << "\"m_levelOnSixMin\":" << g_State.battleStats.m_levelOnSixMin << ",";
+             ss << "\"m_LevelOnTwelveMin\":" << g_State.battleStats.m_LevelOnTwelveMin << ",";
+             ss << "\"m_KillNumCrossTower\":" << g_State.battleStats.m_KillNumCrossTower << ",";
+             ss << "\"m_RevengeKillNum\":" << g_State.battleStats.m_RevengeKillNum << ",";
+             ss << "\"m_ExtremeBackHomeNum\":" << g_State.battleStats.m_ExtremeBackHomeNum << ",";
+             ss << "\"bLockGuidChanged\":" << (g_State.battleStats.bLockGuidChanged ? "true" : "false") << ",";
+             ss << "\"m_BackHomeCount\":" << g_State.battleStats.m_BackHomeCount << ",";
+             ss << "\"m_RecoverSuccessfullyCount\":" << g_State.battleStats.m_RecoverSuccessfullyCount << ",";
+             ss << "\"m_BuyEquipCount\":" << g_State.battleStats.m_BuyEquipCount << ",";
+             ss << "\"m_BuyEquipTime\":" << g_State.battleStats.m_BuyEquipTime << ",";
+             ss << "\"m_uSurvivalCount\":" << g_State.battleStats.m_uSurvivalCount << ",";
+             ss << "\"m_uPlayerCount\":" << g_State.battleStats.m_uPlayerCount << ",";
+             ss << "\"m_iCampAKill\":" << g_State.battleStats.m_iCampAKill << ",";
+             ss << "\"m_iCampBKill\":" << g_State.battleStats.m_iCampBKill << ",";
+             ss << "\"m_CampAGold\":" << g_State.battleStats.m_CampAGold << ",";
+             ss << "\"m_CampBGold\":" << g_State.battleStats.m_CampBGold << ",";
+             ss << "\"m_CampAExp\":" << g_State.battleStats.m_CampAExp << ",";
+             ss << "\"m_CampBExp\":" << g_State.battleStats.m_CampBExp << ",";
+             ss << "\"m_CampAKillTower\":" << g_State.battleStats.m_CampAKillTower << ",";
+             ss << "\"m_CampBKillTower\":" << g_State.battleStats.m_CampBKillTower << ",";
+             ss << "\"m_CampAKillLingZhu\":" << g_State.battleStats.m_CampAKillLingZhu << ",";
+             ss << "\"m_CampBKillLingZhu\":" << g_State.battleStats.m_CampBKillLingZhu << ",";
+             ss << "\"m_CampAKillShenGui\":" << g_State.battleStats.m_CampAKillShenGui << ",";
+             ss << "\"m_CampBKillShenGui\":" << g_State.battleStats.m_CampBKillShenGui << ",";
+             ss << "\"m_CampAKillLingzhuOnSuperior\":" << g_State.battleStats.m_CampAKillLingzhuOnSuperior << ",";
+             ss << "\"m_CampBKillLingzhuOnSuperior\":" << g_State.battleStats.m_CampBKillLingzhuOnSuperior << ",";
+             ss << "\"m_CampASuperiorTime\":" << g_State.battleStats.m_CampASuperiorTime << ",";
+             ss << "\"m_CampBSuperiorTime\":" << g_State.battleStats.m_CampBSuperiorTime << ",";
+             ss << "\"m_iFirstBldTime\":" << g_State.battleStats.m_iFirstBldTime << ",";
+             ss << "\"m_iFirstBldKiller\":" << g_State.battleStats.m_iFirstBldKiller << ",";
 
              // Individual Player Stats
              ss << "\"players\":[";

@@ -234,7 +234,7 @@ struct PlayerData {
     uint32_t stBattleCollectionSkinInfo_Ptr;
     uint32_t iButtonSkin;
 
-    // Computed/Legacy
+    // Legacy/Computed fields
     std::string name;
     std::string uid;
     int camp;
@@ -242,7 +242,7 @@ struct PlayerData {
     int spellId;
     int rankLevel;
 
-    // Legacy support
+    // Added to fix compilation errors
     std::string rank;
     std::string spell;
     std::string heroName;
@@ -250,8 +250,8 @@ struct PlayerData {
 
 // Real-time Battle Info for a Player (Dynamic)
 struct PlayerBattleData {
-    uint64_t uGuid; // To match with RoomData
-    std::string playerName; // This should come from _sName equivalent
+    uint64_t uGuid;
+    std::string playerName; // _sName
     int32_t campType;
     uint32_t kill;
     uint32_t death;
@@ -270,27 +270,44 @@ struct BanPickState {
     std::vector<uint32_t> pickOrder; // Hero IDs
     std::map<uint32_t, uint32_t> banList; // HeroID -> ?
     std::map<uint32_t, uint32_t> pickList; // HeroID -> ?
-    // Map to identify WHO banned/picked:
-    // We will correlate index in list with iPos/iCamp from PlayerData
 };
 
-// Global Battle Stats (Team scores, Time)
+// Global Battle Stats (Expanded with all requested raw fields)
 struct BattleGlobalStats {
     float gameTime; // In seconds
-    int32_t campAScore;
-    int32_t campBScore;
-    int32_t campAGold;
-    int32_t campBGold;
-    int32_t campAKillTower;
-    int32_t campBKillTower;
-    int32_t campAKillLord;
-    int32_t campBKillLord;
-    int32_t campAKillTurtle;
-    int32_t campBKillTurtle;
 
-    // Event Countdowns
-    float lordRespawnTime;
-    float turtleRespawnTime;
+    // Primitive fields from ShowFightDataTiny
+    uint32_t m_levelOnSixMin;
+    uint32_t m_LevelOnTwelveMin;
+    uint32_t m_KillNumCrossTower;
+    uint32_t m_RevengeKillNum;
+    uint32_t m_ExtremeBackHomeNum;
+    bool bLockGuidChanged;
+    uint32_t m_BackHomeCount;
+    uint32_t m_RecoverSuccessfullyCount;
+    uint32_t m_BuyEquipCount;
+    float m_BuyEquipTime;
+    uint32_t m_uSurvivalCount;
+    uint32_t m_uPlayerCount;
+
+    int32_t m_iCampAKill;
+    int32_t m_iCampBKill;
+    uint32_t m_CampAGold;
+    uint32_t m_CampBGold;
+    uint32_t m_CampAExp;
+    uint32_t m_CampBExp;
+    uint32_t m_CampAKillTower;
+    uint32_t m_CampBKillTower;
+    uint32_t m_CampAKillLingZhu;
+    uint32_t m_CampBKillLingZhu;
+    uint32_t m_CampAKillShenGui;
+    uint32_t m_CampBKillShenGui;
+    uint32_t m_CampAKillLingzhuOnSuperior;
+    uint32_t m_CampBKillLingzhuOnSuperior;
+    uint32_t m_CampASuperiorTime;
+    uint32_t m_CampBSuperiorTime;
+    uint32_t m_iFirstBldTime;
+    uint32_t m_iFirstBldKiller;
 };
 
 // State global aplikasi
