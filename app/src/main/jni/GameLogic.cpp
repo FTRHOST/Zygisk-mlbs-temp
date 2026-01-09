@@ -234,18 +234,6 @@ void UpdateBattleStats() {
         g_State.battleStats.m_iFirstBldTime = stats.m_iFirstBldTime;
         g_State.battleStats.m_iFirstBldKiller = stats.m_iFirstBldKiller;
 
-        // Also map legacy fields if relay server expects them (though we are moving to raw)
-        g_State.battleStats.campAScore = stats.m_iCampAKill;
-        g_State.battleStats.campBScore = stats.m_iCampBKill;
-        g_State.battleStats.campAGold = stats.m_CampAGold;
-        g_State.battleStats.campBGold = stats.m_CampBGold;
-        g_State.battleStats.campAKillTower = stats.m_CampAKillTower;
-        g_State.battleStats.campBKillTower = stats.m_CampBKillTower;
-        g_State.battleStats.campAKillLord = stats.m_CampAKillLingZhu;
-        g_State.battleStats.campBKillLord = stats.m_CampBKillLingZhu;
-        g_State.battleStats.campAKillTurtle = stats.m_CampAKillShenGui;
-        g_State.battleStats.campBKillTurtle = stats.m_CampBKillShenGui;
-
         g_State.battlePlayers = localBattlePlayers;
     }
 }
