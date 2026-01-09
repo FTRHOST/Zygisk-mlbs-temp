@@ -201,7 +201,7 @@ void UpdateBattleStats() {
         std::lock_guard<std::mutex> lock(g_State.stateMutex);
         g_State.battleStats.gameTime = time;
 
-        // Copy all raw fields to Global State (Ensure names match GlobalState struct members)
+        // Copy all raw fields to Global State
         g_State.battleStats.m_levelOnSixMin = stats.m_levelOnSixMin;
         g_State.battleStats.m_LevelOnTwelveMin = stats.m_LevelOnTwelveMin;
         g_State.battleStats.m_KillNumCrossTower = stats.m_KillNumCrossTower;
@@ -233,6 +233,18 @@ void UpdateBattleStats() {
         g_State.battleStats.m_CampBSuperiorTime = stats.m_CampBSuperiorTime;
         g_State.battleStats.m_iFirstBldTime = stats.m_iFirstBldTime;
         g_State.battleStats.m_iFirstBldKiller = stats.m_iFirstBldKiller;
+
+        // Also map legacy fields to keep structure valid but use new names under the hood
+        g_State.battleStats.campAScore = stats.m_iCampAKill;
+        g_State.battleStats.campBScore = stats.m_iCampBKill;
+        g_State.battleStats.campAGold = stats.m_CampAGold;
+        g_State.battleStats.campBGold = stats.m_CampBGold;
+        g_State.battleStats.campAKillTower = stats.m_CampAKillTower;
+        g_State.battleStats.campBKillTower = stats.m_CampBKillTower;
+        g_State.battleStats.campAKillLord = stats.m_CampAKillLingZhu;
+        g_State.battleStats.campBKillLord = stats.m_CampBKillLingZhu;
+        g_State.battleStats.campAKillTurtle = stats.m_CampAKillShenGui;
+        g_State.battleStats.campBKillTurtle = stats.m_CampBKillShenGui;
 
         g_State.battlePlayers = localBattlePlayers;
     }

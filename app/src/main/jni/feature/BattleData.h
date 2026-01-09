@@ -5,31 +5,41 @@
 #include <string>
 
 // Raw fields from ShowFightDataTiny as requested
+// Updated to include ALL fields including pointers to match "raw dump" requirement
 struct BattleStats {
     uint32_t m_levelOnSixMin;
     uint32_t m_LevelOnTwelveMin;
-    // Lists/Maps are complex to read directly via simple layout cast,
-    // so we will skip complex containers in the simple layout struct
-    // and just include primitives that are safe to read via offsets.
-    // If needed, we can read them via Il2Cpp helper functions later.
-
-    // Primitive fields from dump:
+    uintptr_t m_EmojiCarryList_Ptr;
+    uintptr_t m_TDFighteData_Ptr;
+    uintptr_t m_DeathInfoList_Ptr;
+    uintptr_t m_DeathAttackInfoDict_Ptr;
+    uintptr_t m_lNotLinkEffect_Ptr;
+    uintptr_t m_dicKeyCancelDis_Ptr;
+    uintptr_t m_KillerCount_Ptr;
+    uintptr_t m_FighterDyData_Ptr;
     uint32_t m_KillNumCrossTower;
     uint32_t m_RevengeKillNum;
     uint32_t m_ExtremeBackHomeNum;
-
-    // Boolean fields (layout depends on packing, usually 1 byte)
+    uintptr_t m_selfBeAttackTIme_Ptr;
+    uintptr_t m_heroNumAroundSelf_Ptr;
+    uintptr_t m_EnemyhurtSelf_Ptr;
+    uint32_t lastLockGuid;
     bool bLockGuidChanged;
-
     uint32_t m_BackHomeCount;
     uint32_t m_RecoverSuccessfullyCount;
-
+    uintptr_t m_ReplaceHeroSkill_Ptr;
+    uintptr_t m_arenaWinVoice_Ptr;
+    uintptr_t m_arenaLoseVoice_Ptr;
     uint32_t m_BuyEquipCount;
     float m_BuyEquipTime;
-
+    uintptr_t m_BannedList_Ptr;
+    uintptr_t m_VoiceBannedList_Ptr;
+    uintptr_t m_ForbidTalkList_Ptr;
+    uintptr_t m_BuyEquipTimes_Ptr;
+    uintptr_t m_GreatIDs_Ptr;
+    uintptr_t m_FighterSplitEnergyBar_Ptr;
     uint32_t m_uSurvivalCount;
     uint32_t m_uPlayerCount;
-
     int32_t m_iCampAKill;
     int32_t m_iCampBKill;
     uint32_t m_CampAGold;
@@ -51,10 +61,8 @@ struct BattleStats {
 };
 
 // Layout for ShowFightDataTiny based on offsets provided in dump.
-// We only map the primitive fields we need.
-// Complex types (Lists/Dicts) are just pointers (void*) in the layout.
 struct ShowFightDataTiny_Layout {
-    // Fields start
+    char pad_0x0_0x10[0x10];            // 0x0
     uint32_t m_levelOnSixMin;           // 0x10
     uint32_t m_LevelOnTwelveMin;        // 0x14
     void* m_EmojiCarryList;             // 0x18
@@ -68,6 +76,7 @@ struct ShowFightDataTiny_Layout {
     uint32_t m_KillNumCrossTower;       // 0x58
     uint32_t m_RevengeKillNum;          // 0x5c
     uint32_t m_ExtremeBackHomeNum;      // 0x60
+    char pad_0x64[4];                   // Alignment?
     void* m_selfBeAttackTIme;           // 0x68
     void* m_heroNumAroundSelf;          // 0x70
     void* m_EnemyhurtSelf;              // 0x78
@@ -87,8 +96,7 @@ struct ShowFightDataTiny_Layout {
     void* m_BuyEquipTimes;              // 0xc8
     void* m_GreatIDs;                   // 0xd0
     void* m_FighterSplitEnergyBar;      // 0xd8
-    // Note: Offsets jump here in dump, checking alignment
-    // Dump says 0xd8 is ptr (8 bytes on 64bit), so next is 0xe0
+    // Note: 0xd8 + 8 = 0xe0
     uint32_t m_uSurvivalCount;          // 0xe0
     uint32_t m_uPlayerCount;            // 0xe4
     int32_t m_iCampAKill;               // 0xe8

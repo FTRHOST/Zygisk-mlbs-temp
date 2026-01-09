@@ -242,7 +242,7 @@ struct PlayerData {
     int spellId;
     int rankLevel;
 
-    // Added to fix compilation errors
+    // Legacy support
     std::string rank;
     std::string spell;
     std::string heroName;
@@ -251,7 +251,7 @@ struct PlayerData {
 // Real-time Battle Info for a Player (Dynamic)
 struct PlayerBattleData {
     uint64_t uGuid;
-    std::string playerName; // _sName
+    std::string playerName; // This should come from _sName equivalent
     int32_t campType;
     uint32_t kill;
     uint32_t death;
@@ -279,14 +279,35 @@ struct BattleGlobalStats {
     // Primitive fields from ShowFightDataTiny
     uint32_t m_levelOnSixMin;
     uint32_t m_LevelOnTwelveMin;
+    uintptr_t m_EmojiCarryList_Ptr;
+    uintptr_t m_TDFighteData_Ptr;
+    uintptr_t m_DeathInfoList_Ptr;
+    uintptr_t m_DeathAttackInfoDict_Ptr;
+    uintptr_t m_lNotLinkEffect_Ptr;
+    uintptr_t m_dicKeyCancelDis_Ptr;
+    uintptr_t m_KillerCount_Ptr;
+    uintptr_t m_FighterDyData_Ptr;
     uint32_t m_KillNumCrossTower;
     uint32_t m_RevengeKillNum;
     uint32_t m_ExtremeBackHomeNum;
+    uintptr_t m_selfBeAttackTIme_Ptr;
+    uintptr_t m_heroNumAroundSelf_Ptr;
+    uintptr_t m_EnemyhurtSelf_Ptr;
+    uint32_t lastLockGuid;
     bool bLockGuidChanged;
     uint32_t m_BackHomeCount;
     uint32_t m_RecoverSuccessfullyCount;
+    uintptr_t m_ReplaceHeroSkill_Ptr;
+    uintptr_t m_arenaWinVoice_Ptr;
+    uintptr_t m_arenaLoseVoice_Ptr;
     uint32_t m_BuyEquipCount;
     float m_BuyEquipTime;
+    uintptr_t m_BannedList_Ptr;
+    uintptr_t m_VoiceBannedList_Ptr;
+    uintptr_t m_ForbidTalkList_Ptr;
+    uintptr_t m_BuyEquipTimes_Ptr;
+    uintptr_t m_GreatIDs_Ptr;
+    uintptr_t m_FighterSplitEnergyBar_Ptr;
     uint32_t m_uSurvivalCount;
     uint32_t m_uPlayerCount;
 
@@ -308,6 +329,22 @@ struct BattleGlobalStats {
     uint32_t m_CampBSuperiorTime;
     uint32_t m_iFirstBldTime;
     uint32_t m_iFirstBldKiller;
+
+    // Legacy support fields (for compatibility)
+    int32_t campAScore;
+    int32_t campBScore;
+    int32_t campAGold;
+    int32_t campBGold;
+    int32_t campAKillTower;
+    int32_t campBKillTower;
+    int32_t campAKillLord;
+    int32_t campBKillLord;
+    int32_t campAKillTurtle;
+    int32_t campBKillTurtle;
+
+    // Event Countdowns
+    float lordRespawnTime;
+    float turtleRespawnTime;
 };
 
 // State global aplikasi
