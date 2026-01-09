@@ -118,5 +118,3 @@ struct ShowFightDataTiny_Layout {
     uint32_t m_iFirstBldTime;           // 0x128
     uint32_t m_iFirstBldKiller;         // 0x12c
 };
-
-BattleStats GetBattleStats();

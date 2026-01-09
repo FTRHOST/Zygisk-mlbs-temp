@@ -77,6 +77,7 @@ struct GlobalState {
     BanPickState banPickState;
     BattleGlobalStats battleStats;
     std::mutex stateMutex;
+    bool roomInfoEnabled = true;
 };
 
 extern GlobalState g_State;

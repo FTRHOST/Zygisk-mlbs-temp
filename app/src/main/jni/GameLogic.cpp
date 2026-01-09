@@ -57,17 +57,6 @@ void Hook_UIRankHero_OnUpdate(void* instance) {
     if (orig_UIRankHero_OnUpdate) orig_UIRankHero_OnUpdate(instance);
 }
 
-// Initialization
-void InitGameLogic() {
-    Il2CppAttach("libil2cpp.so");
-
-    // Hook UIRankHero Update to get instance for BanPick
-    void* updateMethod = Il2CppGetMethodOffset("Assembly-CSharp.dll", "", "UIRankHero", "Update", 0);
-    if (updateMethod) {
-        DobbyHook(updateMethod, (void*)Hook_UIRankHero_OnUpdate, (void**)&orig_UIRankHero_OnUpdate);
-    }
-}
-
 // Helper to iterate List<T>
 // Returns vector of pointers to T
 template <typename T = void*>
@@ -180,11 +169,11 @@ void UpdateBanPickState() {
 }
 
 // Feature: InfoBattle
-void GetBattleStats() {
+void UpdateBattleStats() {
     if (!g_BattleData_Instance) {
          Il2CppGetStaticFieldValue("Assembly-CSharp.dll", "", "BattleData", "Instance", &g_BattleData_Instance);
     }
-    
+
     if (!g_ShowFightDataTiny_Instance) {
         Il2CppGetStaticFieldValue("Assembly-CSharp.dll", "", "ShowFightDataTiny", "Instance", &g_ShowFightDataTiny_Instance);
     }
@@ -319,11 +308,25 @@ void GameLogicLoop() {
     while (true) {
         UpdatePlayerInfo();
         UpdateBanPickState();
-        GetBattleStats();
+        UpdateBattleStats();
 
         std::string json = SerializeState();
         IpcServer::GetInstance().Broadcast(json);
 
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
+}
+
+// Initialization
+void InitGameLogic() {
+    Il2CppAttach("libil2cpp.so");
+
+    // Hook UIRankHero Update to get instance for BanPick
+    void* updateMethod = Il2CppGetMethodOffset("Assembly-CSharp.dll", "", "UIRankHero", "Update", 0);
+    if (updateMethod) {
+        DobbyHook(updateMethod, (void*)Hook_UIRankHero_OnUpdate, (void**)&orig_UIRankHero_OnUpdate);
+    }
+
+    // Start Logic Loop
+    std::thread(GameLogicLoop).detach();
 }
