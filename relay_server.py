@@ -15,7 +15,9 @@ latest_data = {
     "status": "waiting_for_game",
     "last_update": 0,
     "debug": {},
-    "game_data": {}
+    "room_info": {},
+    "ban_pick": {},
+    "battle_stats": {}
 }
 game_socket = None
 
@@ -66,15 +68,27 @@ def socket_listener():
                     latest_data["status"] = "connected"
 
                     if parsed.get("type") == "heartbeat":
-                        latest_data["debug"] = parsed.get("debug")
-                        latest_data["game_data"] = parsed.get("data")
+                        # Update all relevant sections if they exist in the payload
+                        if "debug" in parsed:
+                            latest_data["debug"] = parsed.get("debug")
+
+                        data_payload = parsed.get("data", {})
+
+                        if "room_info" in data_payload:
+                            latest_data["room_info"] = data_payload["room_info"]
+
+                        if "ban_pick" in data_payload:
+                            latest_data["ban_pick"] = data_payload["ban_pick"]
+
+                        if "battle_stats" in data_payload:
+                            latest_data["battle_stats"] = data_payload["battle_stats"]
+
                     elif parsed.get("type") == "log":
                         print(f"[GAME LOG] {parsed.get('msg')}")
 
                     # Debug print di terminal HP/Termux
                     state = latest_data.get('debug', {}).get('game_state', 'N/A')
-                    p_count = len(latest_data.get('game_data', {}).get('players', []))
-                    print(f"\r[LIVE] State: {state} | Players: {p_count} | Bytes: {len(line)}   ", end="")
+                    print(f"\r[LIVE] State: {state} | Bytes: {len(line)} | BP: {len(latest_data.get('ban_pick', {}))}   ", end="")
                 except json.JSONDecodeError:
                     print(f"\n[ERR] Bad JSON: {line[:50]}...")
                 except Exception as e:
@@ -101,6 +115,27 @@ def get_data():
     latest_data["age_seconds"] = age
     return jsonify(latest_data)
 
+@app.route('/inforoom', methods=['GET'])
+def get_inforoom():
+    return jsonify(latest_data.get("room_info", {}))
+
+@app.route('/banpick', methods=['GET'])
+def get_banpick():
+    return jsonify(latest_data.get("ban_pick", {}))
+
+@app.route('/infobattle', methods=['GET'])
+def get_infobattle():
+    return jsonify(latest_data.get("battle_stats", {}))
+
+@app.route('/timebattle', methods=['GET'])
+def get_timebattle():
+    stats = latest_data.get("battle_stats", {})
+    return jsonify({
+        "time": stats.get("time", 0),
+        "lord_countdown": 0, # Placeholder until event logic is fully hooked
+        "turtle_countdown": 0
+    })
+
 @app.route('/api/control', methods=['POST'])
 def control_feature():
     """PC mengirim perintah Start/Stop ke HP"""
@@ -126,7 +161,14 @@ def index():
     <head><title>MLBS Relay</title></head>
     <body style="font-family: monospace; background: #222; color: #0f0; padding: 20px;">
         <h1>MLBS Relay Server Running</h1>
-        <p>Use local PC software to read: <a href="/api/data" style="color: yellow;">/api/data</a></p>
+        <p>Endpoints:</p>
+        <ul>
+            <li><a href="/inforoom" style="color: yellow;">/inforoom</a></li>
+            <li><a href="/banpick" style="color: yellow;">/banpick</a></li>
+            <li><a href="/infobattle" style="color: yellow;">/infobattle</a></li>
+            <li><a href="/timebattle" style="color: yellow;">/timebattle</a></li>
+            <li><a href="/api/data" style="color: yellow;">/api/data (Full JSON)</a></li>
+        </ul>
         <hr>
         <h3>Control:</h3>
         <button onclick="sendCmd('start')">START Feature</button>
