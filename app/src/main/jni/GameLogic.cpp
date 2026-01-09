@@ -58,7 +58,6 @@ void Hook_UIRankHero_OnUpdate(void* instance) {
 }
 
 // Helper to iterate List<T>
-// Returns vector of pointers to T
 template <typename T = void*>
 std::vector<T> IterateList(void* listPtr) {
     std::vector<T> result;
@@ -103,8 +102,6 @@ std::vector<TValue> IterateDictionaryValues(void* dictPtr) {
     int count = READ_FIELD(dictPtr, 0x20, int); // count
 
     if (entriesPtr && count > 0 && count < 100) {
-        // Entry size: 0x18 (24 bytes)
-        // 0x0: hashCode, 0x4: next, 0x8: key, 0x10: value
         uintptr_t dataStart = (uintptr_t)entriesPtr + 0x20;
         for (int i = 0; i < count; i++) {
              uintptr_t entryAddr = dataStart + (i * 0x18);
@@ -118,9 +115,7 @@ std::vector<TValue> IterateDictionaryValues(void* dictPtr) {
 
 // Feature: InfoRoom
 void UpdatePlayerInfo() {
-    // 1. Find List<SystemData.RoomData>
     if (!g_SystemData_RoomData_List) {
-        // Try to find m_quickMatchRoomPayerList in SystemData
         Il2CppGetStaticFieldValue("Assembly-CSharp.dll", "", "SystemData", "m_quickMatchRoomPayerList", &g_SystemData_RoomData_List);
     }
 
@@ -131,23 +126,117 @@ void UpdatePlayerInfo() {
 
     room.players.clear();
 
-    // Iterate the list
     std::vector<void*> roomPlayers = IterateList<void*>(g_SystemData_RoomData_List);
 
     for (void* playerObj : roomPlayers) {
         if (!playerObj) continue;
         
         PlayerData p;
+
+        // --- Basic Fields ---
         p.ulUid = READ_FIELD(playerObj, SystemData_RoomData_lUid, uint64_t);
         p.iPos = READ_FIELD(playerObj, SystemData_RoomData_iPos, int);
         p.uiCampType = READ_FIELD(playerObj, SystemData_RoomData_iCamp, uint32_t);
-        
-        // Name
         void* namePtr = READ_PTR(playerObj, SystemData_RoomData_sName);
         p.sName = ReadCSharpString(namePtr);
-
         p.uiHeroIDChoose = READ_FIELD(playerObj, SystemData_RoomData_heroid, uint32_t);
         p.uiRankLevel = READ_FIELD(playerObj, SystemData_RoomData_uiRankLevel, uint32_t);
+
+        // --- Detailed Fields ---
+        p.bAutoConditionNew = READ_FIELD(playerObj, SystemData_RoomData_bAutoConditionNew, bool);
+        p.bShowSeasonAchieve = READ_FIELD(playerObj, SystemData_RoomData_bShowSeasonAchieve, bool);
+        p.iStyleBoardId = READ_FIELD(playerObj, SystemData_RoomData_iStyleBoardId, uint32_t);
+        p.iMatchEffectId = READ_FIELD(playerObj, SystemData_RoomData_iMatchEffectId, uint32_t);
+        p.iDayBreakNo1Count = READ_FIELD(playerObj, SystemData_RoomData_iDayBreakNo1Count, uint32_t);
+        p.bUid = READ_FIELD(playerObj, SystemData_RoomData_bUid, uint64_t);
+        p.bAutoReadySelect = READ_FIELD(playerObj, SystemData_RoomData_bAutoReadySelect, bool);
+        p.bRobot = READ_FIELD(playerObj, SystemData_RoomData_bRobot, bool);
+        p.heroskin = READ_FIELD(playerObj, SystemData_RoomData_heroskin, uint32_t);
+        p.headID = READ_FIELD(playerObj, SystemData_RoomData_headID, uint32_t);
+        p.uiSex = READ_FIELD(playerObj, SystemData_RoomData_uiSex, uint32_t);
+        p.country = READ_FIELD(playerObj, SystemData_RoomData_country, uint32_t);
+        p.uiZoneId = READ_FIELD(playerObj, SystemData_RoomData_uiZoneId, uint32_t);
+        p.summonSkillId = READ_FIELD(playerObj, SystemData_RoomData_summonSkillId, int32_t);
+        p.runeId = READ_FIELD(playerObj, SystemData_RoomData_runeId, int32_t);
+        p.runeLv = READ_FIELD(playerObj, SystemData_RoomData_runeLv, int32_t);
+
+        void* facePtr = READ_PTR(playerObj, SystemData_RoomData_facePath);
+        p.facePath = ReadCSharpString(facePtr);
+
+        p.faceBorder = READ_FIELD(playerObj, SystemData_RoomData_faceBorder, uint32_t);
+        p.bStarVip = READ_FIELD(playerObj, SystemData_RoomData_bStarVip, bool);
+        p.bMCStarVip = READ_FIELD(playerObj, SystemData_RoomData_bMCStarVip, bool);
+        p.bMCStarVipPlus = READ_FIELD(playerObj, SystemData_RoomData_bMCStarVipPlus, bool);
+        p.ulRoomID = READ_FIELD(playerObj, SystemData_RoomData_ulRoomID, uint64_t);
+        p.iConBlackRoomId = READ_FIELD(playerObj, SystemData_RoomData_iConBlackRoomId, uint64_t);
+        p.banHero = READ_FIELD(playerObj, SystemData_RoomData_banHero, uint32_t);
+        p.uiBattlePlayerType = READ_FIELD(playerObj, SystemData_RoomData_uiBattlePlayerType, int);
+
+        void* sThisLoginCountryPtr = READ_PTR(playerObj, SystemData_RoomData_sThisLoginCountry);
+        p.sThisLoginCountry = ReadCSharpString(sThisLoginCountryPtr);
+
+        void* sCreateRoleCountryPtr = READ_PTR(playerObj, SystemData_RoomData_sCreateRoleCountry);
+        p.sCreateRoleCountry = ReadCSharpString(sCreateRoleCountryPtr);
+
+        p.uiLanguage = READ_FIELD(playerObj, SystemData_RoomData_uiLanguage, uint32_t);
+        p.bIsOpenLive = READ_FIELD(playerObj, SystemData_RoomData_bIsOpenLive, bool);
+        p.iTeamId = READ_FIELD(playerObj, SystemData_RoomData_iTeamId, uint64_t);
+        p.iTeamNationId = READ_FIELD(playerObj, SystemData_RoomData_iTeamNationId, uint64_t);
+
+        void* steamNamePtr = READ_PTR(playerObj, SystemData_RoomData_steamName);
+        p.steamName = ReadCSharpString(steamNamePtr);
+
+        void* steamSimpleNamePtr = READ_PTR(playerObj, SystemData_RoomData_steamSimpleName);
+        p.steamSimpleName = ReadCSharpString(steamSimpleNamePtr);
+
+        p.iCertify = READ_FIELD(playerObj, SystemData_RoomData_iCertify, uint32_t);
+        p.uiPVPRank = READ_FIELD(playerObj, SystemData_RoomData_uiPVPRank, uint32_t);
+        p.bRankReview = READ_FIELD(playerObj, SystemData_RoomData_bRankReview, bool);
+        p.iElo = READ_FIELD(playerObj, SystemData_RoomData_iElo, uint32_t);
+        p.uiRoleLevel = READ_FIELD(playerObj, SystemData_RoomData_uiRoleLevel, uint32_t);
+        p.bNewPlayer = READ_FIELD(playerObj, SystemData_RoomData_bNewPlayer, bool);
+        p.iRoad = READ_FIELD(playerObj, SystemData_RoomData_iRoad, uint32_t);
+        p.uiSkinSource = READ_FIELD(playerObj, SystemData_RoomData_uiSkinSource, uint32_t);
+        p.iFighterType = READ_FIELD(playerObj, SystemData_RoomData_iFighterType, uint32_t);
+        p.iWorldCupSupportCountry = READ_FIELD(playerObj, SystemData_RoomData_iWorldCupSupportCountry, uint32_t);
+        p.iHeroLevel = READ_FIELD(playerObj, SystemData_RoomData_iHeroLevel, uint32_t);
+        p.iHeroSubLevel = READ_FIELD(playerObj, SystemData_RoomData_iHeroSubLevel, uint32_t);
+        p.iHeroPowerLevel = READ_FIELD(playerObj, SystemData_RoomData_iHeroPowerLevel, uint32_t);
+        p.iActCamp = READ_FIELD(playerObj, SystemData_RoomData_iActCamp, uint32_t);
+
+        void* sClientVersionPtr = READ_PTR(playerObj, SystemData_RoomData_sClientVersion);
+        p.sClientVersion = ReadCSharpString(sClientVersionPtr);
+
+        p.uiHolyStatue = READ_FIELD(playerObj, SystemData_RoomData_uiHolyStatue, uint32_t);
+        p.uiKamon = READ_FIELD(playerObj, SystemData_RoomData_uiKamon, uint32_t);
+        p.uiUserMapID = READ_FIELD(playerObj, SystemData_RoomData_uiUserMapID, uint32_t);
+        p.iSurviveRank = READ_FIELD(playerObj, SystemData_RoomData_iSurviveRank, uint32_t);
+        p.iDefenceRankID = READ_FIELD(playerObj, SystemData_RoomData_iDefenceRankID, uint32_t);
+        p.iLeagueWCNum = READ_FIELD(playerObj, SystemData_RoomData_iLeagueWCNum, uint32_t);
+        p.iLeagueFCNum = READ_FIELD(playerObj, SystemData_RoomData_iLeagueFCNum, uint32_t);
+        p.iMPLCertifyTime = READ_FIELD(playerObj, SystemData_RoomData_iMPLCertifyTime, uint32_t);
+        p.iMPLCertifyID = READ_FIELD(playerObj, SystemData_RoomData_iMPLCertifyID, uint32_t);
+        p.iHeroUseCount = READ_FIELD(playerObj, SystemData_RoomData_iHeroUseCount, uint32_t);
+        p.iMythPoint = READ_FIELD(playerObj, SystemData_RoomData_iMythPoint, uint32_t);
+        p.bMythEvaled = READ_FIELD(playerObj, SystemData_RoomData_bMythEvaled, bool);
+        p.iDefenceFlag = READ_FIELD(playerObj, SystemData_RoomData_iDefenceFlag, uint32_t);
+        p.iDefenPoint = READ_FIELD(playerObj, SystemData_RoomData_iDefenPoint, uint32_t);
+        p.iDefenceMap = READ_FIELD(playerObj, SystemData_RoomData_iDefenceMap, uint32_t);
+        p.iAIType = READ_FIELD(playerObj, SystemData_RoomData_iAIType, uint32_t);
+        p.iAISeed = READ_FIELD(playerObj, SystemData_RoomData_iAISeed, uint32_t);
+
+        void* sAiNamePtr = READ_PTR(playerObj, SystemData_RoomData_sAiName);
+        p.sAiName = ReadCSharpString(sAiNamePtr);
+
+        p.iWarmValue = READ_FIELD(playerObj, SystemData_RoomData_iWarmValue, uint32_t);
+        p.uiAircraftIDChooose = READ_FIELD(playerObj, SystemData_RoomData_uiAircraftIDChooose, uint32_t);
+        p.uiHeroSkinIDChoose = READ_FIELD(playerObj, SystemData_RoomData_uiHeroSkinIDChoose, uint32_t);
+        p.uiMapIDChoose = READ_FIELD(playerObj, SystemData_RoomData_uiMapIDChoose, uint32_t);
+        p.uiMapSkinIDChoose = READ_FIELD(playerObj, SystemData_RoomData_uiMapSkinIDChoose, uint32_t);
+        p.uiDefenceRankScore = READ_FIELD(playerObj, SystemData_RoomData_uiDefenceRankScore, uint32_t);
+        p.bBanChat = READ_FIELD(playerObj, SystemData_RoomData_bBanChat, bool);
+        p.iChatBanFinishTime = READ_FIELD(playerObj, SystemData_RoomData_iChatBanFinishTime, uint32_t);
+        p.iChatBanBattleNum = READ_FIELD(playerObj, SystemData_RoomData_iChatBanBattleNum, uint32_t);
 
         room.players.push_back(p);
     }
@@ -250,7 +339,21 @@ std::string SerializeState() {
         ss << "{";
         ss << "\"ulUid\":" << p.ulUid << ",";
         ss << "\"sName\":\"" << p.sName << "\",";
-        ss << "\"uiHeroIDChoose\":" << p.uiHeroIDChoose;
+        ss << "\"heroid\":" << p.heroid << ","; // Used raw name
+        ss << "\"uiRankLevel\":" << p.uiRankLevel << ",";
+
+        // Include detailed fields
+        ss << "\"bRobot\":" << (p.bRobot ? "true" : "false") << ",";
+        ss << "\"country\":" << p.country << ",";
+        ss << "\"iPos\":" << p.iPos << ",";
+        ss << "\"iCamp\":" << p.uiCampType << ",";
+        ss << "\"bStarVip\":" << (p.bStarVip ? "true" : "false") << ",";
+        ss << "\"bIsOpenLive\":" << (p.bIsOpenLive ? "true" : "false") << ",";
+        ss << "\"iTeamId\":" << p.iTeamId << ",";
+        ss << "\"iMythPoint\":" << p.iMythPoint << ",";
+        ss << "\"uiHeroSkinIDChoose\":" << p.uiHeroSkinIDChoose;
+        // ... (add more as needed, but this covers major requested ones)
+
         ss << "}";
         if (i < g_State.roomState.players.size() - 1) ss << ",";
     }
@@ -311,7 +414,7 @@ void GameLogicLoop() {
         UpdateBattleStats();
 
         std::string json = SerializeState();
-        IpcServer::GetInstance().Broadcast(json);
+        BroadcastData(json);
 
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }

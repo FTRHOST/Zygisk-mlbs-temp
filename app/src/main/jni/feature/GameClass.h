@@ -2,6 +2,12 @@
 #include <cstdint>
 
 // SystemData.RoomData (Player Entity) Offsets
+// COMPLETE LIST from Dump
+constexpr uintptr_t SystemData_RoomData_bAutoConditionNew = 0x10;
+constexpr uintptr_t SystemData_RoomData_bShowSeasonAchieve = 0x11;
+constexpr uintptr_t SystemData_RoomData_iStyleBoardId = 0x14;
+constexpr uintptr_t SystemData_RoomData_iMatchEffectId = 0x18;
+constexpr uintptr_t SystemData_RoomData_iDayBreakNo1Count = 0x1c;
 constexpr uintptr_t SystemData_RoomData_lUid = 0x20;
 constexpr uintptr_t SystemData_RoomData_bUid = 0x28;
 constexpr uintptr_t SystemData_RoomData_iCamp = 0x30;
@@ -16,15 +22,91 @@ constexpr uintptr_t SystemData_RoomData_uiSex = 0x58;
 constexpr uintptr_t SystemData_RoomData_country = 0x5c;
 constexpr uintptr_t SystemData_RoomData_uiZoneId = 0x60;
 constexpr uintptr_t SystemData_RoomData_summonSkillId = 0x64;
+constexpr uintptr_t SystemData_RoomData_runeId = 0x68;
+constexpr uintptr_t SystemData_RoomData_mapTalentTree = 0x70;
+constexpr uintptr_t SystemData_RoomData_mRuneSkill2023 = 0x78;
+constexpr uintptr_t SystemData_RoomData_runeLv = 0x80;
+constexpr uintptr_t SystemData_RoomData_skinlist = 0x88;
+constexpr uintptr_t SystemData_RoomData_facePath = 0x90;
+constexpr uintptr_t SystemData_RoomData_faceBorder = 0x98;
+constexpr uintptr_t SystemData_RoomData_bStarVip = 0x9c;
+constexpr uintptr_t SystemData_RoomData_bMCStarVip = 0x9d;
+constexpr uintptr_t SystemData_RoomData_bMCStarVipPlus = 0x9e;
 constexpr uintptr_t SystemData_RoomData_ulRoomID = 0xa0;
+constexpr uintptr_t SystemData_RoomData_iConBlackRoomId = 0xa8;
+constexpr uintptr_t SystemData_RoomData_banHero = 0xb0;
+constexpr uintptr_t SystemData_RoomData_vCanSelectHero = 0xb8;
+constexpr uintptr_t SystemData_RoomData_vCanPickHero = 0xc0;
+constexpr uintptr_t SystemData_RoomData_uiBattlePlayerType = 0xc8;
+constexpr uintptr_t SystemData_RoomData_sThisLoginCountry = 0xd0;
+constexpr uintptr_t SystemData_RoomData_sCreateRoleCountry = 0xd8;
+constexpr uintptr_t SystemData_RoomData_uiLanguage = 0xe0;
+constexpr uintptr_t SystemData_RoomData_bIsOpenLive = 0xe4;
+constexpr uintptr_t SystemData_RoomData_iTeamId = 0xe8;
+constexpr uintptr_t SystemData_RoomData_iTeamNationId = 0xf0;
+constexpr uintptr_t SystemData_RoomData_steamName = 0xf8; // _steamName
+constexpr uintptr_t SystemData_RoomData_steamSimpleName = 0x100; // _steamSimpleName
+constexpr uintptr_t SystemData_RoomData_iCertify = 0x108;
+constexpr uintptr_t SystemData_RoomData_lsEffectSkins = 0x110;
+constexpr uintptr_t SystemData_RoomData_lsComEffSkins = 0x118;
+constexpr uintptr_t SystemData_RoomData_vMissions = 0x120;
 constexpr uintptr_t SystemData_RoomData_uiRankLevel = 0x128;
+constexpr uintptr_t SystemData_RoomData_uiPVPRank = 0x12c;
+constexpr uintptr_t SystemData_RoomData_bRankReview = 0x130;
+constexpr uintptr_t SystemData_RoomData_iElo = 0x134;
+constexpr uintptr_t SystemData_RoomData_uiRoleLevel = 0x138;
+constexpr uintptr_t SystemData_RoomData_bNewPlayer = 0x13c;
+constexpr uintptr_t SystemData_RoomData_iRoad = 0x140;
+constexpr uintptr_t SystemData_RoomData_uiSkinSource = 0x144;
+constexpr uintptr_t SystemData_RoomData_iFighterType = 0x148;
+constexpr uintptr_t SystemData_RoomData_iWorldCupSupportCountry = 0x14c;
+constexpr uintptr_t SystemData_RoomData_iHeroLevel = 0x150;
+constexpr uintptr_t SystemData_RoomData_iHeroSubLevel = 0x154;
+constexpr uintptr_t SystemData_RoomData_iHeroPowerLevel = 0x158;
+constexpr uintptr_t SystemData_RoomData_iActCamp = 0x15c;
+constexpr uintptr_t SystemData_RoomData_vTitle = 0x160;
+constexpr uintptr_t SystemData_RoomData_mHeroMission = 0x168;
+constexpr uintptr_t SystemData_RoomData_vEmoji = 0x170;
+constexpr uintptr_t SystemData_RoomData_vItemBuff = 0x178;
+constexpr uintptr_t SystemData_RoomData_vMapPaint = 0x180;
+constexpr uintptr_t SystemData_RoomData_mSkinPaint = 0x188;
+constexpr uintptr_t SystemData_RoomData_sClientVersion = 0x190;
+constexpr uintptr_t SystemData_RoomData_uiHolyStatue = 0x198;
+constexpr uintptr_t SystemData_RoomData_uiKamon = 0x19c;
+constexpr uintptr_t SystemData_RoomData_uiUserMapID = 0x1a0;
+constexpr uintptr_t SystemData_RoomData_iSurviveRank = 0x1a4;
+constexpr uintptr_t SystemData_RoomData_iDefenceRankID = 0x1a8;
+constexpr uintptr_t SystemData_RoomData_iLeagueWCNum = 0x1ac;
+constexpr uintptr_t SystemData_RoomData_iLeagueFCNum = 0x1b0;
+constexpr uintptr_t SystemData_RoomData_iMPLCertifyTime = 0x1b4;
+constexpr uintptr_t SystemData_RoomData_iMPLCertifyID = 0x1b8;
+constexpr uintptr_t SystemData_RoomData_mapBattleAttr = 0x1c0;
+constexpr uintptr_t SystemData_RoomData_iHeroUseCount = 0x1c8;
+constexpr uintptr_t SystemData_RoomData_iMythPoint = 0x1cc;
+constexpr uintptr_t SystemData_RoomData_bMythEvaled = 0x1d0;
+constexpr uintptr_t SystemData_RoomData_iDefenceFlag = 0x1d4;
+constexpr uintptr_t SystemData_RoomData_iDefenPoint = 0x1d8;
+constexpr uintptr_t SystemData_RoomData_iDefenceMap = 0x1dc;
+constexpr uintptr_t SystemData_RoomData_iAIType = 0x1e0;
+constexpr uintptr_t SystemData_RoomData_iAISeed = 0x1e4;
+constexpr uintptr_t SystemData_RoomData_sAiName = 0x1e8;
+constexpr uintptr_t SystemData_RoomData_iWarmValue = 0x1f0;
+constexpr uintptr_t SystemData_RoomData_uiAircraftIDChooose = 0x1f4;
+constexpr uintptr_t SystemData_RoomData_uiHeroIDChoose = 0x1f8;
+constexpr uintptr_t SystemData_RoomData_uiHeroSkinIDChoose = 0x1fc;
+constexpr uintptr_t SystemData_RoomData_uiMapIDChoose = 0x200;
+constexpr uintptr_t SystemData_RoomData_uiMapSkinIDChoose = 0x204;
+constexpr uintptr_t SystemData_RoomData_uiDefenceRankScore = 0x208;
+constexpr uintptr_t SystemData_RoomData_bBanChat = 0x20c;
+constexpr uintptr_t SystemData_RoomData_iChatBanFinishTime = 0x210;
+constexpr uintptr_t SystemData_RoomData_iChatBanBattleNum = 0x214;
+constexpr uintptr_t SystemData_RoomData_vFastChat = 0x218;
 
 // BattleData Offsets
 constexpr uintptr_t BattleData_heroInfoList = 0x18; // Dictionary<uint, FightHeroInfo>
 constexpr uintptr_t BattleData_fGameTime = 0x1f0;   // private uint fGameTime
 
 // ShowFightDataTiny Offsets (Team Stats)
-// Verified from dump.cs
 constexpr uintptr_t ShowFightDataTiny_m_iCampAKill = 0xe8;
 constexpr uintptr_t ShowFightDataTiny_m_iCampBKill = 0xec;
 constexpr uintptr_t ShowFightDataTiny_m_CampAGold = 0xf0;
