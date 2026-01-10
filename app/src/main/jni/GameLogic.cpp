@@ -464,7 +464,7 @@ void UpdateLogicPlayerStats(void* logicBattleManager) {
     }
 }
 
-void UpdateBattleStats() {
+void UpdateBattleStats(void* logicBattleManager) {
     // 1. Get Game Time
     float time = 0.0f;
     if (BattleStaticInit_GetTime) {
@@ -563,7 +563,7 @@ void UpdateBattleStats() {
     }
 
     // Update Logic Players (New Feature)
-    UpdateLogicPlayerStats(g_LogicBattleManager_Instance);
+    UpdateLogicPlayerStats(logicBattleManager);
 }
 
 void UpdatePlayerInfo() {
@@ -726,8 +726,8 @@ void MonitorBattleState() {
              UpdateBanPickState();
              UpdatePlayerInfo(); // Player info is valid in Draft
         }
-        else if (currentBattleState == 3) { // In-Game
-             UpdateBattleStats(); // Update Score, Gold, Time
+        else if (currentBattleState >= 3) { // In-Game (3, 6, 7 etc)
+             UpdateBattleStats(logicBattleManager); // Update Score, Gold, Time, LogicPlayer
              UpdatePlayerInfo();  // Player info (static part)
         }
     }
@@ -1221,6 +1221,9 @@ void MonitorBattleState() {
         BroadcastData(ss.str());
     }
 }
+
+// Forward declaration
+void UpdateBattleStats(void* logicBattleManager);
 
 void InitGameLogic() {
     // Resolve UIRankHero.OnUpdate offset dynamically
