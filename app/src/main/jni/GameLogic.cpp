@@ -31,7 +31,6 @@ std::atomic<bool> g_isBattleTimerRunning(false);
 // Cache pointers (Singletons) to avoid repeated lookups
 void* g_LogicBattleManager_Instance = nullptr;
 void* g_BattleData_Instance = nullptr;
-void* g_UIRankHero_Instance = nullptr; // For BanPick
 
 #define LOG_TAG "MLBS_CORE"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -49,71 +48,6 @@ void* g_UIRankHero_Instance = nullptr; // For BanPick
 // Helper to read simple Pointer/Address
 #define READ_PTR(target, offset) \
     if(offset > 0) target = (uintptr_t)(*(void**)((uintptr_t)pawn + offset));
-
-// --- HOOKING UIRankHero ---
-// We try to hook multiple methods to catch the instance
-void (*old_UIRankHero_OnUpdate)(void* instance);
-void (*old_UIRankHero_Update)(void* instance);
-void (*old_UIRankHero_Active)(void* instance, void* arg);
-void (*old_UIRankHero_InitView)(void* instance);
-void (*old_UIRankHero_DeActive)(void* instance);
-void (*old_UIRankHero_DeActivePick)(void* instance);
-
-void new_UIRankHero_OnUpdate(void* instance) {
-    if (instance != nullptr) {
-        g_UIRankHero_Instance = instance;
-    }
-    if (old_UIRankHero_OnUpdate) {
-        old_UIRankHero_OnUpdate(instance);
-    }
-}
-
-void new_UIRankHero_Update(void* instance) {
-    if (instance != nullptr) {
-        g_UIRankHero_Instance = instance;
-    }
-    if (old_UIRankHero_Update) {
-        old_UIRankHero_Update(instance);
-    }
-}
-
-void new_UIRankHero_Active(void* instance, void* arg) {
-    if (instance != nullptr) {
-        g_UIRankHero_Instance = instance;
-    }
-    if (old_UIRankHero_Active) {
-        old_UIRankHero_Active(instance, arg);
-    }
-}
-
-void new_UIRankHero_InitView(void* instance) {
-    if (instance != nullptr) {
-        g_UIRankHero_Instance = instance;
-    }
-    if (old_UIRankHero_InitView) {
-        old_UIRankHero_InitView(instance);
-    }
-}
-
-void new_UIRankHero_DeActive(void* instance) {
-    if (instance == g_UIRankHero_Instance) {
-        g_UIRankHero_Instance = nullptr;
-        LOGI("UIRankHero DeActive - Instance Cleared");
-    }
-    if (old_UIRankHero_DeActive) {
-        old_UIRankHero_DeActive(instance);
-    }
-}
-
-void new_UIRankHero_DeActivePick(void* instance) {
-    if (instance == g_UIRankHero_Instance) {
-        g_UIRankHero_Instance = nullptr;
-        LOGI("UIRankHero DeActivePick - Instance Cleared");
-    }
-    if (old_UIRankHero_DeActivePick) {
-        old_UIRankHero_DeActivePick(instance);
-    }
-}
 
 // --- Implementation of GetBattleStats ---
 BattleStats GetBattleStats() {
@@ -163,98 +97,6 @@ BattleStats GetBattleStats() {
 }
 
 // --- LOGIC IMPLEMENTATION ---
-
-void UpdateBanPickState() {
-    if (!g_UIRankHero_Instance) {
-        std::lock_guard<std::mutex> lock(g_State.stateMutex);
-        g_State.banPickState.isOpen = false;
-        return;
-    }
-
-    void* pawn = g_UIRankHero_Instance;
-
-    BanPickState bpState = {};
-    bpState.isOpen = true;
-
-    // Read State
-    READ_FIELD(bpState.curState, int32_t, UIRankHero_m_State);
-
-    // Read Timers
-    READ_FIELD(bpState.banTime, uint32_t, UIRankHero_iBanTimeSpan);
-    READ_FIELD(bpState.pickTime, uint32_t, UIRankHero_iPickTimeSpan);
-    READ_FIELD(bpState.changeHeroTime, uint32_t, UIRankHero_iChangeHeroTimeSpan);
-    READ_FIELD(bpState.preSelectRoadTime, uint32_t, UIRankHero_iPreSelectRoadTimeSpan);
-    READ_FIELD(bpState.startBanTime, uint32_t, UIRankHero__startBanTime);
-    READ_FIELD(bpState.startSelectTime, uint32_t, UIRankHero__startSelectTime);
-    READ_FIELD(bpState.startExChangeTime, uint32_t, UIRankHero__startExChangeTime);
-    READ_FIELD(bpState.startPreSelectRoadTime, uint32_t, UIRankHero__startPreSelectRoadTime);
-
-    // Read Lists (Orders)
-    if (UIRankHero_banOrder > 0) {
-        void* banOrderList = *(void**)((uintptr_t)pawn + UIRankHero_banOrder);
-        if (banOrderList) {
-            auto* list = (monoList<uint32_t>*)banOrderList;
-            int size = list->getSize();
-            if (size > 20) size = 20;
-            for (int i = 0; i < size; i++) {
-                bpState.banOrder.push_back(list->getItems()[i]);
-            }
-        }
-    }
-
-    if (UIRankHero_pickOrder > 0) {
-        void* pickOrderList = *(void**)((uintptr_t)pawn + UIRankHero_pickOrder);
-        if (pickOrderList) {
-            auto* list = (monoList<uint32_t>*)pickOrderList;
-            int size = list->getSize();
-            if (size > 20) size = 20;
-            for (int i = 0; i < size; i++) {
-                bpState.pickOrder.push_back(list->getItems()[i]);
-            }
-        }
-    }
-
-    // Read Dictionaries (BanList & PickList)
-    auto readDictionary = [&](uintptr_t dictOffset, std::map<uint32_t, uint32_t>& targetMap, uintptr_t specificOffset, uintptr_t fallbackOffset) {
-        if (dictOffset > 0) {
-            void* dictPtr = *(void**)((uintptr_t)pawn + dictOffset);
-            if (dictPtr) {
-                // Dictionary<uint32_t, BanInfo/SelectInfo*>
-                auto* dictionary = (Dictionary<uint32_t, void*>*)dictPtr;
-                if (dictionary->entries && dictionary->count > 0) {
-                    auto entries = dictionary->entries->toCPPlist();
-                    for (auto& entry : entries) {
-                        uint32_t playerId = entry.key;
-                        void* infoObj = entry.value; // Pointer to BanInfo or SelectInfo
-
-                        if (infoObj) {
-                            uint32_t heroId = 0;
-                            // Priority 1: Specific Offset
-                            if (specificOffset > 0) {
-                                heroId = *(uint32_t*)((uintptr_t)infoObj + specificOffset);
-                            }
-                            // Priority 2: Fallback (Base class) Offset
-                            else if (fallbackOffset > 0) {
-                                heroId = *(uint32_t*)((uintptr_t)infoObj + fallbackOffset);
-                            }
-
-                            if (heroId > 0 || specificOffset > 0 || fallbackOffset > 0) // Only add if we actually tried reading something
-                                targetMap[playerId] = heroId;
-                        }
-                    }
-                }
-            }
-        }
-    };
-
-    readDictionary(UIRankHero_banList, bpState.banList, UIRankHero_BanInfo_heroId, UIRankHero_RankHeroInfo_heroId);
-    readDictionary(UIRankHero_pickList, bpState.pickList, UIRankHero_SelectInfo_heroId, UIRankHero_RankHeroInfo_heroId);
-
-    {
-        std::lock_guard<std::mutex> lock(g_State.stateMutex);
-        g_State.banPickState = bpState;
-    }
-}
 
 void UpdateLogicPlayerStats(void* logicBattleManager) {
     if (!logicBattleManager) return;
@@ -687,16 +529,19 @@ void UpdateBattleStats(void* logicBattleManager) {
         g_State.battleStats.m_iFirstBldKiller = stats.m_iFirstBldKiller;
 
         // Also map legacy fields to keep structure valid but use new names under the hood
-        g_State.battleStats.campAScore = stats.m_iCampAKill;
-        g_State.battleStats.campBScore = stats.m_iCampBKill;
-        g_State.battleStats.campAGold = stats.m_CampAGold;
-        g_State.battleStats.campBGold = stats.m_CampBGold;
-        g_State.battleStats.campAKillTower = stats.m_CampAKillTower;
-        g_State.battleStats.campBKillTower = stats.m_CampBKillTower;
-        g_State.battleStats.campAKillLord = stats.m_CampAKillLingZhu;
-        g_State.battleStats.campBKillLord = stats.m_CampBKillLingZhu;
-        g_State.battleStats.campAKillTurtle = stats.m_CampAKillShenGui;
-        g_State.battleStats.campBKillTurtle = stats.m_CampBKillShenGui;
+        g_State.battleStats.campAScore = g_State.battleStats.m_iCampAKill;
+        g_State.battleStats.campBScore = g_State.battleStats.m_iCampBKill;
+        g_State.battleStats.campAGold = g_State.battleStats.m_CampAGold;
+        g_State.battleStats.campBGold = g_State.battleStats.m_CampBGold;
+        g_State.battleStats.campAKillTower = g_State.battleStats.m_CampAKillTower;
+        g_State.battleStats.campBKillTower = g_State.battleStats.m_CampBKillTower;
+        g_State.battleStats.campAKillLord = g_State.battleStats.m_CampAKillLingZhu;
+        g_State.battleStats.campBKillLord = g_State.battleStats.m_CampBKillLingZhu;
+        g_State.battleStats.campAKillTurtle = g_State.battleStats.m_CampAKillShenGui;
+        g_State.battleStats.campBKillTurtle = g_State.battleStats.m_CampBKillShenGui;
+
+        // Add elapsed time to JSON
+        // ss << ",\"elapsed_time\":" << g_elapsedBattleTime.count(); // Removed from logic below
 
         g_State.battlePlayers = localBattlePlayers;
     }
@@ -854,7 +699,6 @@ void MonitorBattleState() {
         currentBattleState = GetBattleState(logicBattleManager);
 
         // --- Battle Timer Logic (Run on state 6, Stop on 7) ---
-        // Assuming currentBattleState is the state value (6, 7, etc.)
         if (currentBattleState == 6) {
             if (!g_isBattleTimerRunning) {
                 g_battleStartTime = std::chrono::steady_clock::now();
@@ -865,14 +709,7 @@ void MonitorBattleState() {
             }
         } else if (currentBattleState == 7) {
             g_isBattleTimerRunning = false;
-            // Freeze elapsed time (it stops updating)
         } else {
-            // For other states (e.g. 3), do we reset or keep running?
-            // "berjalan ketika battle state itu di value 6 dan berhenti di value 7"
-            // Implies it might not be running in other states, or 6 is the *start*.
-            // I'll leave it running if it was started, unless 7 stops it.
-            // If we transition 6 -> 3 -> 7?
-            // I'll keep updating if running and not 7.
             if (g_isBattleTimerRunning) {
                  g_elapsedBattleTime = std::chrono::steady_clock::now() - g_battleStartTime;
             }
@@ -886,11 +723,8 @@ void MonitorBattleState() {
         }
 
         // Logic for specific states
-        if (currentBattleState == 2) { // Draft/BanPick
-             UpdateBanPickState();
-             UpdatePlayerInfo(); // Player info is valid in Draft
-        }
-        else if (currentBattleState >= 3) { // In-Game (3, 6, 7 etc)
+        // BanPick removed as per user request to fix crash
+        if (currentBattleState >= 3) { // In-Game (3, 6, 7 etc)
              UpdateBattleStats(logicBattleManager); // Update Score, Gold, Time, LogicPlayer
              UpdatePlayerInfo();  // Player info (static part)
         }
@@ -1382,54 +1216,7 @@ void MonitorBattleState() {
         {
              std::lock_guard<std::mutex> lock(g_State.stateMutex);
              ss << "\"ban_pick\":{";
-             ss << "\"is_open\":" << (g_State.banPickState.isOpen ? "true" : "false") << ",";
-
-             // New Fields
-             ss << "\"state\":" << g_State.banPickState.curState << ",";
-             ss << "\"timers\":{";
-             ss << "\"ban_time\":" << g_State.banPickState.banTime << ",";
-             ss << "\"pick_time\":" << g_State.banPickState.pickTime << ",";
-             ss << "\"change_hero_time\":" << g_State.banPickState.changeHeroTime << ",";
-             ss << "\"pre_select_road_time\":" << g_State.banPickState.preSelectRoadTime << ",";
-             ss << "\"start_ban_time\":" << g_State.banPickState.startBanTime << ",";
-             ss << "\"start_select_time\":" << g_State.banPickState.startSelectTime << ",";
-             ss << "\"start_change_time\":" << g_State.banPickState.startExChangeTime << ",";
-             ss << "\"start_pre_select_road_time\":" << g_State.banPickState.startPreSelectRoadTime;
-             ss << "},";
-
-             ss << "\"ban_order\":[";
-             for(size_t i=0; i<g_State.banPickState.banOrder.size(); i++) {
-                 ss << g_State.banPickState.banOrder[i];
-                 if(i < g_State.banPickState.banOrder.size() - 1) ss << ",";
-             }
-             ss << "],";
-             ss << "\"pick_order\":[";
-             for(size_t i=0; i<g_State.banPickState.pickOrder.size(); i++) {
-                 ss << g_State.banPickState.pickOrder[i];
-                 if(i < g_State.banPickState.pickOrder.size() - 1) ss << ",";
-             }
-             ss << "],";
-
-             // Ban List (PlayerID -> HeroID)
-             ss << "\"ban_list\":[";
-             size_t bCount = 0;
-             for(auto const& [pid, hid] : g_State.banPickState.banList) {
-                 ss << "{\"player_id\":" << pid << ",\"hero_id\":" << hid << "}";
-                 if(bCount < g_State.banPickState.banList.size() - 1) ss << ",";
-                 bCount++;
-             }
-             ss << "],";
-
-             // Pick List (PlayerID -> HeroID)
-             ss << "\"pick_list\":[";
-             size_t pCount = 0;
-             for(auto const& [pid, hid] : g_State.banPickState.pickList) {
-                 ss << "{\"player_id\":" << pid << ",\"hero_id\":" << hid << "}";
-                 if(pCount < g_State.banPickState.pickList.size() - 1) ss << ",";
-                 pCount++;
-             }
-             ss << "]";
-
+             ss << "\"is_open\":false"; // Disabled as per user request to fix crash
              ss << "}";
         }
 
@@ -1443,58 +1230,5 @@ void MonitorBattleState() {
 
 void InitGameLogic() {
     // Attempt to hook multiple methods to find the UIRankHero instance
-
-    // 1. Try OnUpdate
-    void* pUIRankHero_OnUpdate = Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE(""), OBFUSCATE("UIRankHero"), OBFUSCATE("OnUpdate"), 0);
-    if (pUIRankHero_OnUpdate) {
-        DobbyHook(pUIRankHero_OnUpdate, (void*)new_UIRankHero_OnUpdate, (void**)&old_UIRankHero_OnUpdate);
-        LOGI("Hooked UIRankHero.OnUpdate at %p", pUIRankHero_OnUpdate);
-    } else {
-        LOGI("Failed to find UIRankHero.OnUpdate");
-    }
-
-    // 2. Try Update (fallback)
-    void* pUIRankHero_Update = Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE(""), OBFUSCATE("UIRankHero"), OBFUSCATE("Update"), 0);
-    if (pUIRankHero_Update) {
-        DobbyHook(pUIRankHero_Update, (void*)new_UIRankHero_Update, (void**)&old_UIRankHero_Update);
-        LOGI("Hooked UIRankHero.Update at %p", pUIRankHero_Update);
-    } else {
-        LOGI("Failed to find UIRankHero.Update");
-    }
-
-    // 3. Try Active (1 arg)
-    void* pUIRankHero_Active = Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE(""), OBFUSCATE("UIRankHero"), OBFUSCATE("Active"), 1);
-    if (pUIRankHero_Active) {
-        DobbyHook(pUIRankHero_Active, (void*)new_UIRankHero_Active, (void**)&old_UIRankHero_Active);
-        LOGI("Hooked UIRankHero.Active at %p", pUIRankHero_Active);
-    } else {
-        LOGI("Failed to find UIRankHero.Active");
-    }
-
-    // 4. Try InitView (0 args)
-    void* pUIRankHero_InitView = Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE(""), OBFUSCATE("UIRankHero"), OBFUSCATE("InitView"), 0);
-    if (pUIRankHero_InitView) {
-        DobbyHook(pUIRankHero_InitView, (void*)new_UIRankHero_InitView, (void**)&old_UIRankHero_InitView);
-        LOGI("Hooked UIRankHero.InitView at %p", pUIRankHero_InitView);
-    } else {
-        LOGI("Failed to find UIRankHero.InitView");
-    }
-
-    // 5. Try DeActive (Cleanup)
-    void* pUIRankHero_DeActive = Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE(""), OBFUSCATE("UIRankHero"), OBFUSCATE("DeActive"), 0);
-    if (pUIRankHero_DeActive) {
-        DobbyHook(pUIRankHero_DeActive, (void*)new_UIRankHero_DeActive, (void**)&old_UIRankHero_DeActive);
-        LOGI("Hooked UIRankHero.DeActive at %p", pUIRankHero_DeActive);
-    } else {
-        LOGI("Failed to find UIRankHero.DeActive");
-    }
-
-    // 6. Try DeActivePick (Cleanup)
-    void* pUIRankHero_DeActivePick = Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE(""), OBFUSCATE("UIRankHero"), OBFUSCATE("DeActivePick"), 0);
-    if (pUIRankHero_DeActivePick) {
-        DobbyHook(pUIRankHero_DeActivePick, (void*)new_UIRankHero_DeActivePick, (void**)&old_UIRankHero_DeActivePick);
-        LOGI("Hooked UIRankHero.DeActivePick at %p", pUIRankHero_DeActivePick);
-    } else {
-        LOGI("Failed to find UIRankHero.DeActivePick");
-    }
+    // REMOVED UIRankHero hooks as per user request to fix crash
 }
