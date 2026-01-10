@@ -263,6 +263,7 @@ struct PlayerBattleData {
 struct LogicPlayerStats {
     std::string playerName;
     uint32_t heroId;
+    int32_t m_ID;
     uintptr_t m_LoigcBezierBullet_Ptr;
     uintptr_t moveControllers_Ptr;
     int32_t totalGold;

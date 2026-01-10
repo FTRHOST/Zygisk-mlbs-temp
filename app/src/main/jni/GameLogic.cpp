@@ -239,7 +239,10 @@ void UpdateLogicPlayerStats(void* logicBattleManager) {
             READ_PTR(s.ownNormalSkillCache_Ptr, LogicPlayer_ownNormalSkillCache);
             READ_PTR(s.lEatFruits_Ptr, LogicPlayer_lEatFruits);
 
-            // Player Info from m_PlayerData
+            // Read EntityBase m_ID (GameObjectID)
+            READ_FIELD(s.m_ID, int32_t, LogicPlayer_m_ID);
+
+            // Player Info from m_PlayerData (First Attempt)
             if (s.m_PlayerData_Ptr) {
                 // Manually read from m_PlayerData_Ptr using offsets
                 s.heroId = *(uint32_t*)(s.m_PlayerData_Ptr + SystemData_RoomData_heroid);
@@ -247,8 +250,27 @@ void UpdateLogicPlayerStats(void* logicBattleManager) {
                 MonoString* nameStr = *(MonoString**)(s.m_PlayerData_Ptr + SystemData_RoomData__sName);
                 if (nameStr) {
                     s.playerName = nameStr->CString();
-                } else {
-                    s.playerName = "";
+                }
+            }
+
+            // Fallback: If playerName is empty, try to match m_ID with g_State.battlePlayers
+            if (s.playerName.empty()) {
+                std::lock_guard<std::mutex> lock(g_State.stateMutex);
+                for (const auto& bp : g_State.battlePlayers) {
+                    if ((uint32_t)s.m_ID == (uint32_t)bp.uGuid) {
+                        s.playerName = bp.playerName;
+
+                        // Also try to find heroId from RoomData if not set
+                        if (s.heroId == 0) {
+                            for (const auto& rp : g_State.players) {
+                                if (rp._sName == s.playerName) {
+                                    s.heroId = rp.heroid;
+                                    break;
+                                }
+                            }
+                        }
+                        break;
+                    }
                 }
             }
 
@@ -936,6 +958,7 @@ void MonitorBattleState() {
                  // Basic Info
                  ss << "\"playerName\":\"" << s.playerName << "\",";
                  ss << "\"heroId\":" << s.heroId << ",";
+                 ss << "\"m_ID\":" << s.m_ID << ",";
 
                  // Simple Values
                  ss << "\"totalGold\":" << s.totalGold << ",";

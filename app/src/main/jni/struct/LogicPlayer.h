@@ -5,6 +5,8 @@
 // Class: Battle.LogicPlayer
 // Base: Battle.LogicFighter
 
+#define LogicPlayer_m_ID 0xac // From EntityBase (Inherited)
+
 #define LogicPlayer_m_LoigcBezierBullet 0x7e8 // Dictionary<int, LogicBulletBase>
 #define LogicPlayer_moveControllers 0x7f0 // HashSet<uint>
 #define LogicPlayer_totalGold 0x7f8 // int32
