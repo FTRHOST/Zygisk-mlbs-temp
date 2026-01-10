@@ -21,7 +21,6 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
 // Macros for safe field reading
-// Ensure we handle null pointers gracefully
 #define READ_FIELD(ptr, offset, type) \
     ((ptr != nullptr) ? *(type*)((uintptr_t)ptr + offset) : type{})
 
@@ -55,9 +54,7 @@ std::vector<T> IterateList(void* listPtr) {
     std::vector<T> result;
     if (!listPtr) return result;
 
-    // List layout from Il2Cpp.h: klass, monitor, items(0x10), size(0x18) (approx)
-    // We use the offsets defined implicitly by the List struct if we cast, OR explicit offsets.
-    // Ideally we use the List struct from Il2Cpp.h
+    // Cast to Il2Cpp List structure
     List<T>* list = (List<T>*)listPtr;
     if (!list || !list->items) return result;
 
@@ -65,17 +62,16 @@ std::vector<T> IterateList(void* listPtr) {
     if (size > 100) size = 100; // Safety cap
 
     for (int i = 0; i < size; i++) {
-        // items is Array<T>*. vector starts at offset 0x20 usually (after bounds etc)
-        // Array struct in Il2Cpp.h: vector[0]
-        T item = list->items->vector[i];
-        if (item) result.push_back(item);
+        // Access array items vector safely
+        if (i < list->items->max_length) {
+            T item = list->items->vector[i];
+            if (item) result.push_back(item);
+        }
     }
     return result;
 }
 
 // Helper for Dictionary<uint, T> iteration
-// Note: This relies on Il2CppDictionary struct in Il2Cpp.h matching the game's version.
-// If this fails, we might need to use offsets `0x18` (entries) manually.
 template <typename TValue>
 std::vector<TValue> IterateDictionaryValues(void* dictPtr) {
     std::vector<TValue> result;
@@ -84,18 +80,9 @@ std::vector<TValue> IterateDictionaryValues(void* dictPtr) {
     Dictionari<uint32_t, TValue>* dict = (Dictionari<uint32_t, TValue>*)dictPtr;
     if (!dict || !dict->values) return result;
 
-    int count = dict->getSize(); // 'count'
+    // Use values array directly (Structure of Arrays layout in Il2Cpp.h assumption)
+    int count = dict->getSize();
     if (count > 100) count = 100;
-
-    // We iterate the 'values' array directly.
-    // Note: Dictionary 'values' array might contain gaps or be dense depending on implementation.
-    // Typically 'count' is valid items, but stored in 'entries'.
-    // 'values' might be a separate array if it's the `Values` collection, OR the internal storage.
-    // Il2CppDictionary struct has `keys` and `values` arrays. This looks like the Structure of Arrays layout?
-    // Or maybe it represents `entries`?
-    // Standard .NET Dictionary has `int[] buckets` and `Entry[] entries`.
-    // If `Il2Cpp.h` defines `keys` and `values` arrays, it assumes a specific layout.
-    // Let's assume `Il2Cpp.h` is correct for this target as per user instruction "Gunakan fungsi wrapper IL2CPP API".
 
     for (int i = 0; i < count; i++) {
         if (i < dict->values->max_length) {
@@ -109,6 +96,7 @@ std::vector<TValue> IterateDictionaryValues(void* dictPtr) {
 
 // Feature: InfoRoom
 void UpdatePlayerInfo() {
+    // Refresh pointer every time or check null to handle game restarts
     if (!g_SystemData_RoomData_List) {
         Il2CppGetStaticFieldValue("Assembly-CSharp.dll", "", "SystemData", "m_quickMatchRoomPayerList", &g_SystemData_RoomData_List);
     }
@@ -119,14 +107,9 @@ void UpdatePlayerInfo() {
     auto& room = g_State.roomState;
     room.players.clear();
 
-    List<void*>* list = (List<void*>*)g_SystemData_RoomData_List;
-    if (!list || !list->items) return;
+    std::vector<void*> roomPlayers = IterateList<void*>(g_SystemData_RoomData_List);
 
-    int size = list->getSize();
-    if (size > 50) size = 50;
-
-    for (int i = 0; i < size; i++) {
-        void* playerObj = list->items->vector[i];
+    for (void* playerObj : roomPlayers) {
         if (!playerObj) continue;
 
         PlayerData p = {}; // Zero init
@@ -245,10 +228,6 @@ void UpdatePlayerInfo() {
 
 // Feature: BanPick
 void UpdateBanPickState() {
-    // Reuse Room Data for Ban/Pick if possible
-    // SystemData.RoomData has banHero and heroid (pick)
-    // This is safer than hooking UI
-
     if (!g_SystemData_RoomData_List) return;
 
     List<void*>* list = (List<void*>*)g_SystemData_RoomData_List;
@@ -359,6 +338,7 @@ std::string SerializeState() {
         ss << "\"heroid\":" << p.heroid << ",";
         ss << "\"uiRankLevel\":" << p.uiRankLevel << ",";
 
+        // Include detailed fields
         ss << "\"bRobot\":" << (p.bRobot ? "true" : "false") << ",";
         ss << "\"country\":" << p.country << ",";
         ss << "\"iPos\":" << p.iPos << ",";
@@ -376,6 +356,8 @@ std::string SerializeState() {
 
     // BanPick
     ss << "\"ban_pick\":{";
+    // Timers placeholder for compatibility
+    ss << "\"timers\":{},";
     ss << "\"banList\":[";
     for (size_t i = 0; i < g_State.banPickState.banList.size(); ++i) {
         ss << g_State.banPickState.banList[i];
@@ -457,7 +439,5 @@ void MonitorBattleState() {
 // Initialization
 void InitGameLogic() {
     Il2CppAttach("libil2cpp.so");
-    // Removed GameLogicLoop thread creation.
-    // Removed DobbyHook.
     LOGI("GameLogic initialized. Waiting for eglSwapBuffers to trigger MonitorBattleState.");
 }
