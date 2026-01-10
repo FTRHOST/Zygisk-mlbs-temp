@@ -239,6 +239,19 @@ void UpdateLogicPlayerStats(void* logicBattleManager) {
             READ_PTR(s.ownNormalSkillCache_Ptr, LogicPlayer_ownNormalSkillCache);
             READ_PTR(s.lEatFruits_Ptr, LogicPlayer_lEatFruits);
 
+            // Player Info from m_PlayerData
+            if (s.m_PlayerData_Ptr) {
+                // Manually read from m_PlayerData_Ptr using offsets
+                s.heroId = *(uint32_t*)(s.m_PlayerData_Ptr + SystemData_RoomData_heroid);
+
+                MonoString* nameStr = *(MonoString**)(s.m_PlayerData_Ptr + SystemData_RoomData__sName);
+                if (nameStr) {
+                    s.playerName = nameStr->CString();
+                } else {
+                    s.playerName = "";
+                }
+            }
+
             // Simple Values
             READ_FIELD(s.totalGold, int32_t, LogicPlayer_totalGold);
             READ_FIELD(s.m_HurtTotalValue, double, LogicPlayer_m_HurtTotalValue);
@@ -919,6 +932,10 @@ void MonitorBattleState() {
                  ss << "\"lastFailedAutoAiSpellCast_Ptr\":" << s.lastFailedAutoAiSpellCast_Ptr << ",";
                  ss << "\"ownNormalSkillCache_Ptr\":" << s.ownNormalSkillCache_Ptr << ",";
                  ss << "\"lEatFruits_Ptr\":" << s.lEatFruits_Ptr << ",";
+
+                 // Basic Info
+                 ss << "\"playerName\":\"" << s.playerName << "\",";
+                 ss << "\"heroId\":" << s.heroId << ",";
 
                  // Simple Values
                  ss << "\"totalGold\":" << s.totalGold << ",";
