@@ -40,16 +40,57 @@ void BroadcastData(const std::string& data);
 
 void HandleIncomingCommand(const std::string& cmd) {
     LOGI("Received command: %s", cmd.c_str());
-    if (cmd.find("cmd:stop") != std::string::npos) {
-        std::lock_guard<std::mutex> lock(g_State.stateMutex);
-        g_State.roomInfoEnabled = false;
-        BroadcastData("{\"type\":\"log\", \"msg\":\"Feature PAUSED by user\"}");
+
+    std::lock_guard<std::mutex> lock(g_State.stateMutex);
+
+    // Legacy Commands (Mapped to RoomInfo or Master Toggle?)
+    // User requested "Setiap Fitur" (Every feature).
+
+    // Command format: SET_CONFIG <FeatureName> <1/0>
+    // Example: SET_CONFIG RoomInfo 0
+
+    if (cmd.find("SET_CONFIG") != std::string::npos) {
+        std::stringstream ss(cmd);
+        std::string command, feature;
+        int value;
+
+        ss >> command >> feature >> value;
+
+        bool enabled = (value != 0);
+        bool changed = false;
+
+        if (feature == "RoomInfo") {
+            if (g_State.config.RoomInfo != enabled) {
+                g_State.config.RoomInfo = enabled;
+                changed = true;
+            }
+        } else if (feature == "BattleStats") {
+            if (g_State.config.BattleStats != enabled) {
+                g_State.config.BattleStats = enabled;
+                changed = true;
+            }
+        } else if (feature == "BattleTimer") {
+            if (g_State.config.BattleTimer != enabled) {
+                g_State.config.BattleTimer = enabled;
+                changed = true;
+            }
+        } else if (feature == "LogicPlayerStats") {
+             if (g_State.config.LogicPlayerStats != enabled) {
+                g_State.config.LogicPlayerStats = enabled;
+                changed = true;
+            }
+        }
+
+        if (changed) {
+            SaveConfig(g_State.config);
+            BroadcastData("{\"type\":\"log\", \"msg\":\"Config Updated: " + feature + "=" + (enabled ? "ON" : "OFF") + "\"}");
+        }
     }
-    else if (cmd.find("cmd:start") != std::string::npos) {
-        std::lock_guard<std::mutex> lock(g_State.stateMutex);
-        g_State.roomInfoEnabled = true;
-        BroadcastData("{\"type\":\"log\", \"msg\":\"Feature RESUMED by user\"}");
-    }
+    // Keep legacy start/stop for overall disable?
+    // User said "disable dan enable using IPC".
+    // I'll assume legacy start/stop toggles RoomInfo (main feature) or maybe all?
+    // Let's make them toggle RoomInfo for backward compatibility if needed,
+    // but the new system is SET_CONFIG.
 }
 
 void ClientReaderLoop(int client_fd) {

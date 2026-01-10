@@ -7,8 +7,8 @@
 // Core Logic Functions
 void MonitorBattleState();
 void UpdatePlayerInfo();
-void UpdateBattleStats(); // New: For /infobattle and /timebattle
-void UpdateBanPickState(); // New: For /banpick
+void UpdateBattleStats(void* logicBattleManager);
+void UpdateBanPickState();
 
 // Helper to convert IDs to Strings (Mock or Real)
 std::string HeroToString(int id);
