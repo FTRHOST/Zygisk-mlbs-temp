@@ -124,7 +124,7 @@ typedef struct
 } Il2CppDebuggerTransport;
 #if _MSC_VER
 typedef wchar_t Il2CppChar;
-#elif __has_feature(cxx_unicode_literals)
+#elif defined(__cpp_unicode_literals)
 typedef char16_t Il2CppChar;
 #else
 typedef uint16_t Il2CppChar;
