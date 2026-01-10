@@ -540,9 +540,6 @@ void UpdateBattleStats(void* logicBattleManager) {
         g_State.battleStats.campAKillTurtle = g_State.battleStats.m_CampAKillShenGui;
         g_State.battleStats.campBKillTurtle = g_State.battleStats.m_CampBKillShenGui;
 
-        // Add elapsed time to JSON
-        // ss << ",\"elapsed_time\":" << g_elapsedBattleTime.count(); // Removed from logic below
-
         g_State.battlePlayers = localBattlePlayers;
     }
 
@@ -725,8 +722,27 @@ void MonitorBattleState() {
         // Logic for specific states
         // BanPick removed as per user request to fix crash
         if (currentBattleState >= 3) { // In-Game (3, 6, 7 etc)
-             UpdateBattleStats(logicBattleManager); // Update Score, Gold, Time, LogicPlayer
-             UpdatePlayerInfo();  // Player info (static part)
+             // Only update if enabled in config
+             if (g_State.config.BattleStats) {
+                UpdateBattleStats(logicBattleManager);
+             }
+             if (g_State.config.LogicPlayerStats) {
+                UpdateLogicPlayerStats(logicBattleManager);
+             }
+             // Room info usually static but sometimes updated
+             if (g_State.config.RoomInfo) {
+                UpdatePlayerInfo();
+             }
+        } else if (currentBattleState == 2) {
+             // Draft mode - update room info if enabled
+             if (g_State.config.RoomInfo) {
+                UpdatePlayerInfo();
+             }
+        } else if (currentBattleState == 0) {
+             // Lobby - room info
+             if (g_State.config.RoomInfo) {
+                UpdatePlayerInfo();
+             }
         }
     }
     
@@ -743,14 +759,22 @@ void MonitorBattleState() {
         ss << "\"debug\":{";
         ss << "\"manager_found\":" << (isManagerValid ? "true" : "false") << ",";
         ss << "\"game_state\":" << currentBattleState << ",";
-        ss << "\"feature_enabled\":" << (g_State.roomInfoEnabled ? "true" : "false");
+        ss << "\"feature_enabled\":true"; // Legacy field, keeping true as we now have granular config
+        ss << "},";
+
+        // Config Section (Echo back current config)
+        ss << "\"config\":{";
+        ss << "\"RoomInfo\":" << (g_State.config.RoomInfo ? "true" : "false") << ",";
+        ss << "\"BattleStats\":" << (g_State.config.BattleStats ? "true" : "false") << ",";
+        ss << "\"BattleTimer\":" << (g_State.config.BattleTimer ? "true" : "false") << ",";
+        ss << "\"LogicPlayerStats\":" << (g_State.config.LogicPlayerStats ? "true" : "false");
         ss << "},";
 
         // Data Section
         ss << "\"data\":{";
 
         // --- 1. Room Info (/inforoom) ---
-        {
+        if (g_State.config.RoomInfo) {
              std::lock_guard<std::mutex> lock(g_State.stateMutex);
              ss << "\"room_info\":{";
              ss << "\"player_count\":" << g_State.players.size() << ",";
@@ -848,367 +872,375 @@ void MonitorBattleState() {
              }
              ss << "]";
 
-             // --- LOGIC PLAYER STATS (NEW) ---
-             ss << ",\"logic_players\":[";
-             for (size_t i = 0; i < g_State.logicPlayers.size(); ++i) {
-                 const auto& s = g_State.logicPlayers[i];
-                 ss << "{";
+             if (g_State.config.LogicPlayerStats) {
+                 // --- LOGIC PLAYER STATS (NEW) ---
+                 ss << ",\"logic_players\":[";
+                 for (size_t i = 0; i < g_State.logicPlayers.size(); ++i) {
+                     const auto& s = g_State.logicPlayers[i];
+                     ss << "{";
 
-                 // Pointers (as hex strings or raw ints)
-                 ss << "\"m_LoigcBezierBullet_Ptr\":" << s.m_LoigcBezierBullet_Ptr << ",";
-                 ss << "\"moveControllers_Ptr\":" << s.moveControllers_Ptr << ",";
-                 ss << "\"m_copyHurtCount_Ptr\":" << s.m_copyHurtCount_Ptr << ",";
-                 ss << "\"m_dictFirstHitHeroTime_Ptr\":" << s.m_dictFirstHitHeroTime_Ptr << ",";
-                 ss << "\"m_listTimeSpent4Kill_Ptr\":" << s.m_listTimeSpent4Kill_Ptr << ",";
-                 ss << "\"m_arrSavedPositions_Ptr\":" << s.m_arrSavedPositions_Ptr << ",";
-                 ss << "\"hurtInfos_Ptr\":" << s.hurtInfos_Ptr << ",";
-                 ss << "\"enemySightLoss_Ptr\":" << s.enemySightLoss_Ptr << ",";
-                 ss << "\"endedSightValue_Ptr\":" << s.endedSightValue_Ptr << ",";
-                 ss << "\"ongoingSightValue_Ptr\":" << s.ongoingSightValue_Ptr << ",";
-                 ss << "\"multiKillAssistIDs_Ptr\":" << s.multiKillAssistIDs_Ptr << ",";
-                 ss << "\"m_LogicGuLianBulletManger_Ptr\":" << s.m_LogicGuLianBulletManger_Ptr << ",";
-                 ss << "\"m_magicTranSpellSideEffect_Ptr\":" << s.m_magicTranSpellSideEffect_Ptr << ",";
-                 ss << "\"m_magicTranSpellStageEffect_Ptr\":" << s.m_magicTranSpellStageEffect_Ptr << ",";
-                 ss << "\"m_TwinPlayer_Ptr\":" << s.m_TwinPlayer_Ptr << ",";
-                 ss << "\"m_summonTwinAI_Ptr\":" << s.m_summonTwinAI_Ptr << ",";
-                 ss << "\"m_AFKTurnAIComponent_Ptr\":" << s.m_AFKTurnAIComponent_Ptr << ",";
-                 ss << "\"m_uiAFKHoldCDRangeTimes_Ptr\":" << s.m_uiAFKHoldCDRangeTimes_Ptr << ",";
-                 ss << "\"m_SynFightData_Ptr\":" << s.m_SynFightData_Ptr << ",";
-                 ss << "\"dicIgnoreOpered_Ptr\":" << s.dicIgnoreOpered_Ptr << ",";
-                 ss << "\"m_RelativeScore_Ptr\":" << s.m_RelativeScore_Ptr << ",";
-                 ss << "\"dicTalentSkill_Ptr\":" << s.dicTalentSkill_Ptr << ",";
-                 ss << "\"dicRuneSkill2023_Ptr\":" << s.dicRuneSkill2023_Ptr << ",";
-                 ss << "\"lsMissions_Ptr\":" << s.lsMissions_Ptr << ",";
-                 ss << "\"easterEggMissions_Ptr\":" << s.easterEggMissions_Ptr << ",";
-                 ss << "\"m_lsEmoji_Ptr\":" << s.m_lsEmoji_Ptr << ",";
-                 ss << "\"m_lsAutoEmoji_Ptr\":" << s.m_lsAutoEmoji_Ptr << ",";
-                 ss << "\"m_lsAnima_Ptr\":" << s.m_lsAnima_Ptr << ",";
-                 ss << "\"m_lsGraffiti_Ptr\":" << s.m_lsGraffiti_Ptr << ",";
-                 ss << "\"m_PlayerData_Ptr\":" << s.m_PlayerData_Ptr << ",";
-                 ss << "\"m_ConfigData_Ptr\":" << s.m_ConfigData_Ptr << ",";
-                 ss << "\"m_HeroCostType_Ptr\":" << s.m_HeroCostType_Ptr << ",";
-                 ss << "\"m_BattleConfig_Ptr\":" << s.m_BattleConfig_Ptr << ",";
-                 ss << "\"m_TowerTurnData_Ptr\":" << s.m_TowerTurnData_Ptr << ",";
-                 ss << "\"m_OperateTimeMonitor_Ptr\":" << s.m_OperateTimeMonitor_Ptr << ",";
-                 ss << "\"m_CheckNearComponent_Ptr\":" << s.m_CheckNearComponent_Ptr << ",";
-                 ss << "\"m_EstimateAttrComponent_Ptr\":" << s.m_EstimateAttrComponent_Ptr << ",";
-                 ss << "\"m_StoreSkillComp_Ptr\":" << s.m_StoreSkillComp_Ptr << ",";
-                 ss << "\"m_operCache_Ptr\":" << s.m_operCache_Ptr << ",";
-                 ss << "\"m_HighLightComp_Ptr\":" << s.m_HighLightComp_Ptr << ",";
-                 ss << "\"m_GankShoeRewardComp_Ptr\":" << s.m_GankShoeRewardComp_Ptr << ",";
-                 ss << "\"m_ReqMoveDir_Ptr\":" << s.m_ReqMoveDir_Ptr << ",";
-                 ss << "\"m_ReqMovePos_Ptr\":" << s.m_ReqMovePos_Ptr << ",";
-                 ss << "\"listKillTime_Ptr\":" << s.listKillTime_Ptr << ",";
-                 ss << "\"m_vDelayRemoveSkillIds_Ptr\":" << s.m_vDelayRemoveSkillIds_Ptr << ",";
-                 ss << "\"m_HitHeroTimes_SkillGuid_Ptr\":" << s.m_HitHeroTimes_SkillGuid_Ptr << ",";
-                 ss << "\"m_dStealValue_Ptr\":" << s.m_dStealValue_Ptr << ",";
-                 ss << "\"m_AutoAttackAI_Ptr\":" << s.m_AutoAttackAI_Ptr << ",";
-                 ss << "\"m_LogicPunish_Ptr\":" << s.m_LogicPunish_Ptr << ",";
-                 ss << "\"m_Killer_Ptr\":" << s.m_Killer_Ptr << ",";
-                 ss << "\"m_DevourData_Ptr\":" << s.m_DevourData_Ptr << ",";
-                 ss << "\"m_ControlSummer_Ptr\":" << s.m_ControlSummer_Ptr << ",";
-                 ss << "\"m_vSkillLogicFighter_Ptr\":" << s.m_vSkillLogicFighter_Ptr << ",";
-                 ss << "\"m_vPlayerDeadInfo_Ptr\":" << s.m_vPlayerDeadInfo_Ptr << ",";
-                 ss << "\"m_RecmendEquips_Ptr\":" << s.m_RecmendEquips_Ptr << ",";
-                 ss << "\"m_v2StarDir_Ptr\":" << s.m_v2StarDir_Ptr << ",";
-                 ss << "\"shopData_Ptr\":" << s.shopData_Ptr << ",";
-                 ss << "\"v2LastCheckPos_Ptr\":" << s.v2LastCheckPos_Ptr << ",";
-                 ss << "\"lastCheckMoveDir_Ptr\":" << s.lastCheckMoveDir_Ptr << ",";
-                 ss << "\"lastFailedAutoAiSpellCast_Ptr\":" << s.lastFailedAutoAiSpellCast_Ptr << ",";
-                 ss << "\"ownNormalSkillCache_Ptr\":" << s.ownNormalSkillCache_Ptr << ",";
-                 ss << "\"lEatFruits_Ptr\":" << s.lEatFruits_Ptr << ",";
+                     // Pointers (as hex strings or raw ints)
+                     ss << "\"m_LoigcBezierBullet_Ptr\":" << s.m_LoigcBezierBullet_Ptr << ",";
+                     ss << "\"moveControllers_Ptr\":" << s.moveControllers_Ptr << ",";
+                     ss << "\"m_copyHurtCount_Ptr\":" << s.m_copyHurtCount_Ptr << ",";
+                     ss << "\"m_dictFirstHitHeroTime_Ptr\":" << s.m_dictFirstHitHeroTime_Ptr << ",";
+                     ss << "\"m_listTimeSpent4Kill_Ptr\":" << s.m_listTimeSpent4Kill_Ptr << ",";
+                     ss << "\"m_arrSavedPositions_Ptr\":" << s.m_arrSavedPositions_Ptr << ",";
+                     ss << "\"hurtInfos_Ptr\":" << s.hurtInfos_Ptr << ",";
+                     ss << "\"enemySightLoss_Ptr\":" << s.enemySightLoss_Ptr << ",";
+                     ss << "\"endedSightValue_Ptr\":" << s.endedSightValue_Ptr << ",";
+                     ss << "\"ongoingSightValue_Ptr\":" << s.ongoingSightValue_Ptr << ",";
+                     ss << "\"multiKillAssistIDs_Ptr\":" << s.multiKillAssistIDs_Ptr << ",";
+                     ss << "\"m_LogicGuLianBulletManger_Ptr\":" << s.m_LogicGuLianBulletManger_Ptr << ",";
+                     ss << "\"m_magicTranSpellSideEffect_Ptr\":" << s.m_magicTranSpellSideEffect_Ptr << ",";
+                     ss << "\"m_magicTranSpellStageEffect_Ptr\":" << s.m_magicTranSpellStageEffect_Ptr << ",";
+                     ss << "\"m_TwinPlayer_Ptr\":" << s.m_TwinPlayer_Ptr << ",";
+                     ss << "\"m_summonTwinAI_Ptr\":" << s.m_summonTwinAI_Ptr << ",";
+                     ss << "\"m_AFKTurnAIComponent_Ptr\":" << s.m_AFKTurnAIComponent_Ptr << ",";
+                     ss << "\"m_uiAFKHoldCDRangeTimes_Ptr\":" << s.m_uiAFKHoldCDRangeTimes_Ptr << ",";
+                     ss << "\"m_SynFightData_Ptr\":" << s.m_SynFightData_Ptr << ",";
+                     ss << "\"dicIgnoreOpered_Ptr\":" << s.dicIgnoreOpered_Ptr << ",";
+                     ss << "\"m_RelativeScore_Ptr\":" << s.m_RelativeScore_Ptr << ",";
+                     ss << "\"dicTalentSkill_Ptr\":" << s.dicTalentSkill_Ptr << ",";
+                     ss << "\"dicRuneSkill2023_Ptr\":" << s.dicRuneSkill2023_Ptr << ",";
+                     ss << "\"lsMissions_Ptr\":" << s.lsMissions_Ptr << ",";
+                     ss << "\"easterEggMissions_Ptr\":" << s.easterEggMissions_Ptr << ",";
+                     ss << "\"m_lsEmoji_Ptr\":" << s.m_lsEmoji_Ptr << ",";
+                     ss << "\"m_lsAutoEmoji_Ptr\":" << s.m_lsAutoEmoji_Ptr << ",";
+                     ss << "\"m_lsAnima_Ptr\":" << s.m_lsAnima_Ptr << ",";
+                     ss << "\"m_lsGraffiti_Ptr\":" << s.m_lsGraffiti_Ptr << ",";
+                     ss << "\"m_PlayerData_Ptr\":" << s.m_PlayerData_Ptr << ",";
+                     ss << "\"m_ConfigData_Ptr\":" << s.m_ConfigData_Ptr << ",";
+                     ss << "\"m_HeroCostType_Ptr\":" << s.m_HeroCostType_Ptr << ",";
+                     ss << "\"m_BattleConfig_Ptr\":" << s.m_BattleConfig_Ptr << ",";
+                     ss << "\"m_TowerTurnData_Ptr\":" << s.m_TowerTurnData_Ptr << ",";
+                     ss << "\"m_OperateTimeMonitor_Ptr\":" << s.m_OperateTimeMonitor_Ptr << ",";
+                     ss << "\"m_CheckNearComponent_Ptr\":" << s.m_CheckNearComponent_Ptr << ",";
+                     ss << "\"m_EstimateAttrComponent_Ptr\":" << s.m_EstimateAttrComponent_Ptr << ",";
+                     ss << "\"m_StoreSkillComp_Ptr\":" << s.m_StoreSkillComp_Ptr << ",";
+                     ss << "\"m_operCache_Ptr\":" << s.m_operCache_Ptr << ",";
+                     ss << "\"m_HighLightComp_Ptr\":" << s.m_HighLightComp_Ptr << ",";
+                     ss << "\"m_GankShoeRewardComp_Ptr\":" << s.m_GankShoeRewardComp_Ptr << ",";
+                     ss << "\"m_ReqMoveDir_Ptr\":" << s.m_ReqMoveDir_Ptr << ",";
+                     ss << "\"m_ReqMovePos_Ptr\":" << s.m_ReqMovePos_Ptr << ",";
+                     ss << "\"listKillTime_Ptr\":" << s.listKillTime_Ptr << ",";
+                     ss << "\"m_vDelayRemoveSkillIds_Ptr\":" << s.m_vDelayRemoveSkillIds_Ptr << ",";
+                     ss << "\"m_HitHeroTimes_SkillGuid_Ptr\":" << s.m_HitHeroTimes_SkillGuid_Ptr << ",";
+                     ss << "\"m_dStealValue_Ptr\":" << s.m_dStealValue_Ptr << ",";
+                     ss << "\"m_AutoAttackAI_Ptr\":" << s.m_AutoAttackAI_Ptr << ",";
+                     ss << "\"m_LogicPunish_Ptr\":" << s.m_LogicPunish_Ptr << ",";
+                     ss << "\"m_Killer_Ptr\":" << s.m_Killer_Ptr << ",";
+                     ss << "\"m_DevourData_Ptr\":" << s.m_DevourData_Ptr << ",";
+                     ss << "\"m_ControlSummer_Ptr\":" << s.m_ControlSummer_Ptr << ",";
+                     ss << "\"m_vSkillLogicFighter_Ptr\":" << s.m_vSkillLogicFighter_Ptr << ",";
+                     ss << "\"m_vPlayerDeadInfo_Ptr\":" << s.m_vPlayerDeadInfo_Ptr << ",";
+                     ss << "\"m_RecmendEquips_Ptr\":" << s.m_RecmendEquips_Ptr << ",";
+                     ss << "\"m_v2StarDir_Ptr\":" << s.m_v2StarDir_Ptr << ",";
+                     ss << "\"shopData_Ptr\":" << s.shopData_Ptr << ",";
+                     ss << "\"v2LastCheckPos_Ptr\":" << s.v2LastCheckPos_Ptr << ",";
+                     ss << "\"lastCheckMoveDir_Ptr\":" << s.lastCheckMoveDir_Ptr << ",";
+                     ss << "\"lastFailedAutoAiSpellCast_Ptr\":" << s.lastFailedAutoAiSpellCast_Ptr << ",";
+                     ss << "\"ownNormalSkillCache_Ptr\":" << s.ownNormalSkillCache_Ptr << ",";
+                     ss << "\"lEatFruits_Ptr\":" << s.lEatFruits_Ptr << ",";
 
-                 // Basic Info
-                 ss << "\"playerName\":\"" << s.playerName << "\",";
-                 ss << "\"heroId\":" << s.heroId << ",";
-                 ss << "\"m_ID\":" << s.m_ID << ",";
+                     // Basic Info
+                     ss << "\"playerName\":\"" << s.playerName << "\",";
+                     ss << "\"heroId\":" << s.heroId << ",";
+                     ss << "\"m_ID\":" << s.m_ID << ",";
 
-                 // Simple Values
-                 ss << "\"totalGold\":" << s.totalGold << ",";
-                 ss << "\"m_HurtTotalValue\":" << s.m_HurtTotalValue << ",";
-                 ss << "\"m_HurtHeroValue\":" << s.m_HurtHeroValue << ",";
-                 ss << "\"m_ATKHero\":" << s.m_ATKHero << ",";
-                 ss << "\"m_iCommonAttackHeroCount\":" << s.m_iCommonAttackHeroCount << ",";
-                 ss << "\"m_iNormalSkillHeroCount\":" << s.m_iNormalSkillHeroCount << ",";
-                 ss << "\"m_HurtHeroReel\":" << s.m_HurtHeroReel << ",";
-                 ss << "\"m_HurtHeroAD\":" << s.m_HurtHeroAD << ",";
-                 ss << "\"m_HurtHeroAP\":" << s.m_HurtHeroAP << ",";
-                 ss << "\"m_HurtHeroByEquip\":" << s.m_HurtHeroByEquip << ",";
-                 ss << "\"m_HurtHeroByEmblem\":" << s.m_HurtHeroByEmblem << ",";
-                 ss << "\"m_HurtTowerValue\":" << s.m_HurtTowerValue << ",";
-                 ss << "\"m_HurtSoliderValue\":" << s.m_HurtSoliderValue << ",";
-                 ss << "\"m_iInjuredShield\":" << s.m_iInjuredShield << ",";
-                 ss << "\"m_InjuredValue\":" << s.m_InjuredValue << ",";
-                 ss << "\"m_InjuredTower\":" << s.m_InjuredTower << ",";
-                 ss << "\"m_InjuredTotal\":" << s.m_InjuredTotal << ",";
-                 ss << "\"m_InjuredSoldier\":" << s.m_InjuredSoldier << ",";
-                 ss << "\"m_InjuredAD\":" << s.m_InjuredAD << ",";
-                 ss << "\"m_InjuredAP\":" << s.m_InjuredAP << ",";
-                 ss << "\"m_InjuredReal\":" << s.m_InjuredReal << ",";
-                 ss << "\"m_RealInjuredVal\":" << s.m_RealInjuredVal << ",";
-                 ss << "\"m_iBeCuredValue\":" << s.m_iBeCuredValue << ",";
-                 ss << "\"m_CureHero\":" << s.m_CureHero << ",";
-                 ss << "\"m_CureTeammate\":" << s.m_CureTeammate << ",";
-                 ss << "\"m_CureSelf\":" << s.m_CureSelf << ",";
-                 ss << "\"m_CureHeroJustSkill\":" << s.m_CureHeroJustSkill << ",";
-                 ss << "\"m_iSkillUseCount\":" << s.m_iSkillUseCount << ",";
-                 ss << "\"m_iCommonAtkUseCount\":" << s.m_iCommonAtkUseCount << ",";
-                 ss << "\"m_iCommonAtkUseCount_AllSkillCD\":" << s.m_iCommonAtkUseCount_AllSkillCD << ",";
-                 ss << "\"m_iNormalSkillUseCount\":" << s.m_iNormalSkillUseCount << ",";
-                 ss << "\"m_iNormalSkillHasDraggedCount\":" << s.m_iNormalSkillHasDraggedCount << ",";
-                 ss << "\"m_iFirstSkillUseCount\":" << s.m_iFirstSkillUseCount << ",";
-                 ss << "\"m_iSecondSkillUseCount\":" << s.m_iSecondSkillUseCount << ",";
-                 ss << "\"m_iThirdSkillUseCount\":" << s.m_iThirdSkillUseCount << ",";
-                 ss << "\"m_iFourthSkillUseCount\":" << s.m_iFourthSkillUseCount << ",";
-                 ss << "\"m_iEquipSkillUseCount\":" << s.m_iEquipSkillUseCount << ",";
-                 ss << "\"m_iCureSkillUseCount\":" << s.m_iCureSkillUseCount << ",";
-                 ss << "\"m_iBackHomeSkillUseCount\":" << s.m_iBackHomeSkillUseCount << ",";
-                 ss << "\"m_iSummonSkillUseCount\":" << s.m_iSummonSkillUseCount << ",";
-                 ss << "\"m_iHuntSkillUseCount\":" << s.m_iHuntSkillUseCount << ",";
-                 ss << "\"m_iGankSkillUseCount\":" << s.m_iGankSkillUseCount << ",";
-                 ss << "\"m_iKillMageCount\":" << s.m_iKillMageCount << ",";
-                 ss << "\"m_iKillMarksmanCount\":" << s.m_iKillMarksmanCount << ",";
-                 ss << "\"m_iEnterHeroBattleFromGrass\":" << s.m_iEnterHeroBattleFromGrass << ",";
-                 ss << "\"m_iEnterGrassTimes\":" << s.m_iEnterGrassTimes << ",";
-                 ss << "\"KillTowerTimes\":" << s.KillTowerTimes << ",";
-                 ss << "\"KillSoldierTimes\":" << s.KillSoldierTimes << ",";
-                 ss << "\"m_nSavedPositionsStart\":" << s.m_nSavedPositionsStart << ",";
-                 ss << "\"m_nSavedPositionsCount\":" << s.m_nSavedPositionsCount << ",";
-                 ss << "\"m_uLossOfSightTime\":" << s.m_uLossOfSightTime << ",";
-                 ss << "\"sightIdGenerator\":" << s.sightIdGenerator << ",";
-                 ss << "\"continueKill\":" << s.continueKill << ",";
-                 ss << "\"multiKill\":" << s.multiKill << ",";
-                 ss << "\"DoubleKillTimes\":" << s.DoubleKillTimes << ",";
-                 ss << "\"TripleKillTimes\":" << s.TripleKillTimes << ",";
-                 ss << "\"QuadraKillTimes\":" << s.QuadraKillTimes << ",";
-                 ss << "\"PentaKillTimes\":" << s.PentaKillTimes << ",";
-                 ss << "\"greenLightCanUse\":" << s.greenLightCanUse << ",";
-                 ss << "\"greenLightStartTime\":" << s.greenLightStartTime << ",";
-                 ss << "\"greenLightTimeSpan\":" << s.greenLightTimeSpan << ",";
-                 ss << "\"greenLightIgnoreCountDown\":" << s.greenLightIgnoreCountDown << ",";
-                 ss << "\"bMonitoringSoloBreakLane\":" << s.bMonitoringSoloBreakLane << ",";
-                 ss << "\"uMonitoringTowerGuid\":" << s.uMonitoringTowerGuid << ",";
-                 ss << "\"uMonitoringTimeout\":" << s.uMonitoringTimeout << ",";
-                 ss << "\"lastReceiveMoveOptTime\":" << s.lastReceiveMoveOptTime << ",";
-                 ss << "\"moveProtectTime\":" << s.moveProtectTime << ",";
-                 ss << "\"m_bMoveProtectAIState\":" << s.m_bMoveProtectAIState << ",";
-                 ss << "\"uCheckStarLightTaskTimer\":" << s.uCheckStarLightTaskTimer << ",";
-                 ss << "\"uLastGuideSoldier2Tower\":" << s.uLastGuideSoldier2Tower << ",";
-                 ss << "\"m_iGuideSoldier2Tower\":" << s.m_iGuideSoldier2Tower << ",";
-                 ss << "\"m_bIsTwinMain\":" << s.m_bIsTwinMain << ",";
-                 ss << "\"m_bIsTwinControl\":" << s.m_bIsTwinControl << ",";
-                 ss << "\"bMLAIState\":" << s.bMLAIState << ",";
-                 ss << "\"bShowConnectMsg\":" << s.bShowConnectMsg << ",";
-                 ss << "\"m_IsRobotPlayer\":" << s.m_IsRobotPlayer << ",";
-                 ss << "\"m_uiWaitTrunAITime\":" << s.m_uiWaitTrunAITime << ",";
-                 ss << "\"uiQuicklyTrunToAITime\":" << s.uiQuicklyTrunToAITime << ",";
-                 ss << "\"uiNomalTurnAITime\":" << s.uiNomalTurnAITime << ",";
-                 ss << "\"uIgnoreTurnAITime\":" << s.uIgnoreTurnAITime << ",";
-                 ss << "\"iIgnoreOpered\":" << s.iIgnoreOpered << ",";
-                 ss << "\"m_bForceAi\":" << s.m_bForceAi << ",";
-                 ss << "\"m_bWeakNetWork\":" << s.m_bWeakNetWork << ",";
-                 ss << "\"m_uLastTimePlayerOpered\":" << s.m_uLastTimePlayerOpered << ",";
-                 ss << "\"bWaitTurnAI\":" << s.bWaitTurnAI << ",";
-                 ss << "\"uplandRangeDistance\":" << s.uplandRangeDistance << ",";
-                 ss << "\"m_bConnected\":" << s.m_bConnected << ",";
-                 ss << "\"m_uiVoiceParam\":" << s.m_uiVoiceParam << ",";
-                 ss << "\"m_iHolyStatueSkillID\":" << s.m_iHolyStatueSkillID << ",";
-                 ss << "\"m_uHolyStatueID\":" << s.m_uHolyStatueID << ",";
-                 ss << "\"m_uHolyStatueIDIfUsed\":" << s.m_uHolyStatueIDIfUsed << ",";
-                 ss << "\"m_TotalExp\":" << s.m_TotalExp << ",";
-                 ss << "\"m_bGankEquip\":" << s.m_bGankEquip << ",";
-                 ss << "\"m_bHuntSkill\":" << s.m_bHuntSkill << ",";
-                 ss << "\"m_bLowestMoneyOrExp\":" << s.m_bLowestMoneyOrExp << ",";
-                 ss << "\"m_ShareMoneyEx\":" << s.m_ShareMoneyEx << ",";
-                 ss << "\"m_ShareExpEx\":" << s.m_ShareExpEx << ",";
-                 ss << "\"m_RewardMoney\":" << s.m_RewardMoney << ",";
-                 ss << "\"m_iBaseMoney\":" << s.m_iBaseMoney << ",";
-                 ss << "\"m_KillBounty\":" << s.m_KillBounty << ",";
-                 ss << "\"m_bBountyOverThreshold\":" << s.m_bBountyOverThreshold << ",";
-                 ss << "\"m_uLastBountyOverThreshold\":" << s.m_uLastBountyOverThreshold << ",";
-                 ss << "\"m_iContinueDeadSub\":" << s.m_iContinueDeadSub << ",";
-                 ss << "\"m_iContinueKillNum\":" << s.m_iContinueKillNum << ",";
-                 ss << "\"m_iContinueKillAdd\":" << s.m_iContinueKillAdd << ",";
-                 ss << "\"m_RewardExp\":" << s.m_RewardExp << ",";
-                 ss << "\"m_iBaseExp\":" << s.m_iBaseExp << ",";
-                 ss << "\"m_iLevelExp\":" << s.m_iLevelExp << ",";
-                 ss << "\"m_iLvExpRate\":" << s.m_iLvExpRate << ",";
-                 ss << "\"m_fContinueDeadPara\":" << s.m_fContinueDeadPara << ",";
-                 ss << "\"DeadAndKillTimes\":" << s.DeadAndKillTimes << ",";
-                 ss << "\"m_AssistTimesReward\":" << s.m_AssistTimesReward << ",";
-                 ss << "\"m_bReqMoveUpdate\":" << s.m_bReqMoveUpdate << ",";
-                 ss << "\"bDeathHoldKillCount\":" << s.bDeathHoldKillCount << ",";
-                 ss << "\"mShutDown\":" << s.mShutDown << ",";
-                 ss << "\"lastKillTime\":" << s.lastKillTime << ",";
-                 ss << "\"mutiKillUsefulTime\":" << s.mutiKillUsefulTime << ",";
-                 ss << "\"mutiKillUsefulTimeOn5kill\":" << s.mutiKillUsefulTimeOn5kill << ",";
-                 ss << "\"m_uiLastMoveTime\":" << s.m_uiLastMoveTime << ",";
-                 ss << "\"m_GetGoldTimesBySoldier\":" << s.m_GetGoldTimesBySoldier << ",";
-                 ss << "\"m_BeyondGodlike\":" << s.m_BeyondGodlike << ",";
-                 ss << "\"m_MaxMutiKill\":" << s.m_MaxMutiKill << ",";
-                 ss << "\"m_MaxContinueKill\":" << s.m_MaxContinueKill << ",";
-                 ss << "\"m_singleKill\":" << s.m_singleKill << ",";
-                 ss << "\"m_KillLingZhu\":" << s.m_KillLingZhu << ",";
-                 ss << "\"m_AssistLingZhu\":" << s.m_AssistLingZhu << ",";
-                 ss << "\"KillWildTimes\":" << s.KillWildTimes << ",";
-                 ss << "\"m_WeekKill\":" << s.m_WeekKill << ",";
-                 ss << "\"m_KillShenGui\":" << s.m_KillShenGui << ",";
-                 ss << "\"m_AssistShenGui\":" << s.m_AssistShenGui << ",";
-                 ss << "\"m_KillCdMonster\":" << s.m_KillCdMonster << ",";
-                 ss << "\"m_KillAtkMonster\":" << s.m_KillAtkMonster << ",";
-                 ss << "\"m_KillMePlayerCount\":" << s.m_KillMePlayerCount << ",";
-                 ss << "\"m_CurZoneId\":" << s.m_CurZoneId << ",";
-                 ss << "\"m_HurtTurtle\":" << s.m_HurtTurtle << ",";
-                 ss << "\"m_HurtLord\":" << s.m_HurtLord << ",";
-                 ss << "\"m_ShieldCureHero\":" << s.m_ShieldCureHero << ",";
-                 ss << "\"m_ShieldCureSelf\":" << s.m_ShieldCureSelf << ",";
-                 ss << "\"m_ShieldTeammate\":" << s.m_ShieldTeammate << ",";
-                 ss << "\"m_SufferControlTime\":" << s.m_SufferControlTime << ",";
-                 ss << "\"m_SufferSlowTime\":" << s.m_SufferSlowTime << ",";
-                 ss << "\"m_ControlTime\":" << s.m_ControlTime << ",";
-                 ss << "\"m_KillsWithRedAndBlueBuff\":" << s.m_KillsWithRedAndBlueBuff << ",";
-                 ss << "\"m_MoveDis\":" << s.m_MoveDis << ",";
-                 ss << "\"m_MoveDisTickCount\":" << s.m_MoveDisTickCount << ",";
-                 ss << "\"m_MoveCountPrePosX\":" << s.m_MoveCountPrePosX << ",";
-                 ss << "\"m_MoveCountPrePosY\":" << s.m_MoveCountPrePosY << ",";
-                 ss << "\"m_GoldByWild\":" << s.m_GoldByWild << ",";
-                 ss << "\"m_GoldBySoldier\":" << s.m_GoldBySoldier << ",";
-                 ss << "\"m_GoldByHero\":" << s.m_GoldByHero << ",";
-                 ss << "\"iAllHurtVal\":" << s.iAllHurtVal << ",";
-                 ss << "\"m_CrlTimes\":" << s.m_CrlTimes << ",";
-                 ss << "\"m_iPoisonValue\":" << s.m_iPoisonValue << ",";
-                 ss << "\"m_hurtEnemyWild\":" << s.m_hurtEnemyWild << ",";
-                 ss << "\"m_hurtWildValue\":" << s.m_hurtWildValue << ",";
-                 ss << "\"m_TrunSpeed\":" << s.m_TrunSpeed << ",";
-                 ss << "\"m_GreatGuid\":" << s.m_GreatGuid << ",";
-                 ss << "\"m_bRefuseSelectAIType\":" << s.m_bRefuseSelectAIType << ",";
-                 ss << "\"m_uiLastOperFrameTime\":" << s.m_uiLastOperFrameTime << ",";
-                 ss << "\"SummonSkillId\":" << s.SummonSkillId << ",";
-                 ss << "\"m_SummonStartSkillId\":" << s.m_SummonStartSkillId << ",";
-                 ss << "\"m_RankLv\":" << s.m_RankLv << ",";
-                 ss << "\"m_bigRankLv\":" << s.m_bigRankLv << ",";
-                 ss << "\"m_rankStar\":" << s.m_rankStar << ",";
-                 ss << "\"m_rankNum\":" << s.m_rankNum << ",";
-                 ss << "\"m_lastReliveTime\":" << s.m_lastReliveTime << ",";
-                 ss << "\"m_ReviveTimeMs\":" << s.m_ReviveTimeMs << ",";
-                 ss << "\"m_bFastDie\":" << s.m_bFastDie << ",";
-                 ss << "\"m_EatFruit\":" << s.m_EatFruit << ",";
-                 ss << "\"m_KillByFruit\":" << s.m_KillByFruit << ",";
-                 ss << "\"m_GetFruitOnMin\":" << s.m_GetFruitOnMin << ",";
-                 ss << "\"bAllowRelive\":" << s.bAllowRelive << ",";
-                 ss << "\"m_uiRoleLevel\":" << s.m_uiRoleLevel << ",";
-                 ss << "\"m_iAddGoldValue\":" << s.m_iAddGoldValue << ",";
-                 ss << "\"iMaxHurtValue\":" << s.iMaxHurtValue << ",";
-                 ss << "\"m_iSkinId\":" << s.m_iSkinId << ",";
-                 ss << "\"m_iDragonCrystalId\":" << s.m_iDragonCrystalId << ",";
-                 ss << "\"m_uUserMapID\":" << s.m_uUserMapID << ",";
-                 ss << "\"iLastGiveupEquip\":" << s.iLastGiveupEquip << ",";
-                 ss << "\"m_iSurvivalTime\":" << s.m_iSurvivalTime << ",";
-                 ss << "\"m_iChickenRanking\":" << s.m_iChickenRanking << ",";
-                 ss << "\"m_bEmojiBirthday\":" << s.m_bEmojiBirthday << ",";
-                 ss << "\"logAttackSpeed\":" << s.logAttackSpeed << ",";
-                 ss << "\"doAttackSpeed\":" << s.doAttackSpeed << ",";
-                 ss << "\"m_CommATK_RunTimer\":" << s.m_CommATK_RunTimer << ",";
-                 ss << "\"m_dCommATKSingTime_Mod\":" << s.m_dCommATKSingTime_Mod << ",";
-                 ss << "\"m_CommATKSingTime_LastTimer\":" << s.m_CommATKSingTime_LastTimer << ",";
-                 ss << "\"m_dCommATKCD_Mod\":" << s.m_dCommATKCD_Mod << ",";
-                 ss << "\"m_CommATKCD_LastTimer\":" << s.m_CommATKCD_LastTimer << ",";
-                 ss << "\"m_PriorEquip\":" << s.m_PriorEquip << ",";
-                 ss << "\"m_uHeroEnhanceLevel\":" << s.m_uHeroEnhanceLevel << ",";
-                 ss << "\"m_bGhostHasDied\":" << s.m_bGhostHasDied << ",";
-                 ss << "\"lastCheckDirSymbol\":" << s.lastCheckDirSymbol << ",";
-                 ss << "\"right\":" << s.right << ",";
-                 ss << "\"lastFailedAutoAiSpellCastTime\":" << s.lastFailedAutoAiSpellCastTime << ",";
-                 ss << "\"autoTime\":" << s.autoTime << ",";
-                 ss << "\"m_dXpGrowthDecimal\":" << s.m_dXpGrowthDecimal << ",";
-                 ss << "\"bBornedBoss\":" << s.bBornedBoss << ",";
-                 ss << "\"iPreMutiKillValue\":" << s.iPreMutiKillValue << ",";
-                 ss << "\"iPreContinueKillValue\":" << s.iPreContinueKillValue << ",";
-                 ss << "\"iPreKillLingZhu\":" << s.iPreKillLingZhu << ",";
-                 ss << "\"iPreKillShenGui\":" << s.iPreKillShenGui << ",";
-                 ss << "\"iPreShutDown\":" << s.iPreShutDown << ",";
-                 ss << "\"bCheckFirstBlood\":" << s.bCheckFirstBlood << ",";
-                 ss << "\"iCurrentResult\":" << s.iCurrentResult << ",";
-                 ss << "\"iPreGetResultTime\":" << s.iPreGetResultTime << ",";
-                 ss << "\"iCurKilledResult\":" << s.iCurKilledResult << ",";
-                 ss << "\"iPreKilledResultTime\":" << s.iPreKilledResultTime;
-
-                 ss << "}";
-                 if (i < g_State.logicPlayers.size() - 1) ss << ",";
+                     // Simple Values
+                     ss << "\"totalGold\":" << s.totalGold << ",";
+                     ss << "\"m_HurtTotalValue\":" << s.m_HurtTotalValue << ",";
+                     ss << "\"m_HurtHeroValue\":" << s.m_HurtHeroValue << ",";
+                     ss << "\"m_ATKHero\":" << s.m_ATKHero << ",";
+                     ss << "\"m_iCommonAttackHeroCount\":" << s.m_iCommonAttackHeroCount << ",";
+                     ss << "\"m_iNormalSkillHeroCount\":" << s.m_iNormalSkillHeroCount << ",";
+                     ss << "\"m_HurtHeroReel\":" << s.m_HurtHeroReel << ",";
+                     ss << "\"m_HurtHeroAD\":" << s.m_HurtHeroAD << ",";
+                     ss << "\"m_HurtHeroAP\":" << s.m_HurtHeroAP << ",";
+                     ss << "\"m_HurtHeroByEquip\":" << s.m_HurtHeroByEquip << ",";
+                     ss << "\"m_HurtHeroByEmblem\":" << s.m_HurtHeroByEmblem << ",";
+                     ss << "\"m_HurtTowerValue\":" << s.m_HurtTowerValue << ",";
+                     ss << "\"m_HurtSoliderValue\":" << s.m_HurtSoliderValue << ",";
+                     ss << "\"m_iInjuredShield\":" << s.m_iInjuredShield << ",";
+                     ss << "\"m_InjuredValue\":" << s.m_InjuredValue << ",";
+                     ss << "\"m_InjuredTower\":" << s.m_InjuredTower << ",";
+                     ss << "\"m_InjuredTotal\":" << s.m_InjuredTotal << ",";
+                     ss << "\"m_InjuredSoldier\":" << s.m_InjuredSoldier << ",";
+                     ss << "\"m_InjuredAD\":" << s.m_InjuredAD << ",";
+                     ss << "\"m_InjuredAP\":" << s.m_InjuredAP << ",";
+                     ss << "\"m_InjuredReal\":" << s.m_InjuredReal << ",";
+                     ss << "\"m_RealInjuredVal\":" << s.m_RealInjuredVal << ",";
+                     ss << "\"m_iBeCuredValue\":" << s.m_iBeCuredValue << ",";
+                     ss << "\"m_CureHero\":" << s.m_CureHero << ",";
+                     ss << "\"m_CureTeammate\":" << s.m_CureTeammate << ",";
+                     ss << "\"m_CureSelf\":" << s.m_CureSelf << ",";
+                     ss << "\"m_CureHeroJustSkill\":" << s.m_CureHeroJustSkill << ",";
+                     ss << "\"m_iSkillUseCount\":" << s.m_iSkillUseCount << ",";
+                     ss << "\"m_iCommonAtkUseCount\":" << s.m_iCommonAtkUseCount << ",";
+                     ss << "\"m_iCommonAtkUseCount_AllSkillCD\":" << s.m_iCommonAtkUseCount_AllSkillCD << ",";
+                     ss << "\"m_iNormalSkillUseCount\":" << s.m_iNormalSkillUseCount << ",";
+                     ss << "\"m_iNormalSkillHasDraggedCount\":" << s.m_iNormalSkillHasDraggedCount << ",";
+                     ss << "\"m_iFirstSkillUseCount\":" << s.m_iFirstSkillUseCount << ",";
+                     ss << "\"m_iSecondSkillUseCount\":" << s.m_iSecondSkillUseCount << ",";
+                     ss << "\"m_iThirdSkillUseCount\":" << s.m_iThirdSkillUseCount << ",";
+                     ss << "\"m_iFourthSkillUseCount\":" << s.m_iFourthSkillUseCount << ",";
+                     ss << "\"m_iEquipSkillUseCount\":" << s.m_iEquipSkillUseCount << ",";
+                     ss << "\"m_iCureSkillUseCount\":" << s.m_iCureSkillUseCount << ",";
+                     ss << "\"m_iBackHomeSkillUseCount\":" << s.m_iBackHomeSkillUseCount << ",";
+                     ss << "\"m_iSummonSkillUseCount\":" << s.m_iSummonSkillUseCount << ",";
+                     ss << "\"m_iHuntSkillUseCount\":" << s.m_iHuntSkillUseCount << ",";
+                     ss << "\"m_iGankSkillUseCount\":" << s.m_iGankSkillUseCount << ",";
+                     ss << "\"m_iKillMageCount\":" << s.m_iKillMageCount << ",";
+                     ss << "\"m_iKillMarksmanCount\":" << s.m_iKillMarksmanCount << ",";
+                     ss << "\"m_iEnterHeroBattleFromGrass\":" << s.m_iEnterHeroBattleFromGrass << ",";
+                     ss << "\"m_iEnterGrassTimes\":" << s.m_iEnterGrassTimes << ",";
+                     ss << "\"KillTowerTimes\":" << s.KillTowerTimes << ",";
+                     ss << "\"KillSoldierTimes\":" << s.KillSoldierTimes << ",";
+                     ss << "\"m_nSavedPositionsStart\":" << s.m_nSavedPositionsStart << ",";
+                     ss << "\"m_nSavedPositionsCount\":" << s.m_nSavedPositionsCount << ",";
+                     ss << "\"m_uLossOfSightTime\":" << s.m_uLossOfSightTime << ",";
+                     ss << "\"sightIdGenerator\":" << s.sightIdGenerator << ",";
+                     ss << "\"continueKill\":" << s.continueKill << ",";
+                     ss << "\"multiKill\":" << s.multiKill << ",";
+                     ss << "\"DoubleKillTimes\":" << s.DoubleKillTimes << ",";
+                     ss << "\"TripleKillTimes\":" << s.TripleKillTimes << ",";
+                     ss << "\"QuadraKillTimes\":" << s.QuadraKillTimes << ",";
+                     ss << "\"PentaKillTimes\":" << s.PentaKillTimes << ",";
+                     ss << "\"greenLightCanUse\":" << s.greenLightCanUse << ",";
+                     ss << "\"greenLightStartTime\":" << s.greenLightStartTime << ",";
+                     ss << "\"greenLightTimeSpan\":" << s.greenLightTimeSpan << ",";
+                     ss << "\"greenLightIgnoreCountDown\":" << s.greenLightIgnoreCountDown << ",";
+                     ss << "\"bMonitoringSoloBreakLane\":" << s.bMonitoringSoloBreakLane << ",";
+                     ss << "\"uMonitoringTowerGuid\":" << s.uMonitoringTowerGuid << ",";
+                     ss << "\"uMonitoringTimeout\":" << s.uMonitoringTimeout << ",";
+                     ss << "\"lastReceiveMoveOptTime\":" << s.lastReceiveMoveOptTime << ",";
+                     ss << "\"moveProtectTime\":" << s.moveProtectTime << ",";
+                     ss << "\"m_bMoveProtectAIState\":" << s.m_bMoveProtectAIState << ",";
+                     ss << "\"uCheckStarLightTaskTimer\":" << s.uCheckStarLightTaskTimer << ",";
+                     ss << "\"uLastGuideSoldier2Tower\":" << s.uLastGuideSoldier2Tower << ",";
+                     ss << "\"m_iGuideSoldier2Tower\":" << s.m_iGuideSoldier2Tower << ",";
+                     ss << "\"m_bIsTwinMain\":" << s.m_bIsTwinMain << ",";
+                     ss << "\"m_bIsTwinControl\":" << s.m_bIsTwinControl << ",";
+                     ss << "\"bMLAIState\":" << s.bMLAIState << ",";
+                     ss << "\"bShowConnectMsg\":" << s.bShowConnectMsg << ",";
+                     ss << "\"m_IsRobotPlayer\":" << s.m_IsRobotPlayer << ",";
+                     ss << "\"m_uiWaitTrunAITime\":" << s.m_uiWaitTrunAITime << ",";
+                     ss << "\"uiQuicklyTrunToAITime\":" << s.uiQuicklyTrunToAITime << ",";
+                     ss << "\"uiNomalTurnAITime\":" << s.uiNomalTurnAITime << ",";
+                     ss << "\"uIgnoreTurnAITime\":" << s.uIgnoreTurnAITime << ",";
+                     ss << "\"iIgnoreOpered\":" << s.iIgnoreOpered << ",";
+                     ss << "\"m_bForceAi\":" << s.m_bForceAi << ",";
+                     ss << "\"m_bWeakNetWork\":" << s.m_bWeakNetWork << ",";
+                     ss << "\"m_uLastTimePlayerOpered\":" << s.m_uLastTimePlayerOpered << ",";
+                     ss << "\"bWaitTurnAI\":" << s.bWaitTurnAI << ",";
+                     ss << "\"uplandRangeDistance\":" << s.uplandRangeDistance << ",";
+                     ss << "\"m_bConnected\":" << s.m_bConnected << ",";
+                     ss << "\"m_uiVoiceParam\":" << s.m_uiVoiceParam << ",";
+                     ss << "\"m_iHolyStatueSkillID\":" << s.m_iHolyStatueSkillID << ",";
+                     ss << "\"m_uHolyStatueID\":" << s.m_uHolyStatueID << ",";
+                     ss << "\"m_uHolyStatueIDIfUsed\":" << s.m_uHolyStatueIDIfUsed << ",";
+                     ss << "\"m_TotalExp\":" << s.m_TotalExp << ",";
+                     ss << "\"m_bGankEquip\":" << s.m_bGankEquip << ",";
+                     ss << "\"m_bHuntSkill\":" << s.m_bHuntSkill << ",";
+                     ss << "\"m_bLowestMoneyOrExp\":" << s.m_bLowestMoneyOrExp << ",";
+                     ss << "\"m_ShareMoneyEx\":" << s.m_ShareMoneyEx << ",";
+                     ss << "\"m_ShareExpEx\":" << s.m_ShareExpEx << ",";
+                     ss << "\"m_RewardMoney\":" << s.m_RewardMoney << ",";
+                     ss << "\"m_iBaseMoney\":" << s.m_iBaseMoney << ",";
+                     ss << "\"m_KillBounty\":" << s.m_KillBounty << ",";
+                     ss << "\"m_bBountyOverThreshold\":" << s.m_bBountyOverThreshold << ",";
+                     ss << "\"m_uLastBountyOverThreshold\":" << s.m_uLastBountyOverThreshold << ",";
+                     ss << "\"m_iContinueDeadSub\":" << s.m_iContinueDeadSub << ",";
+                     ss << "\"m_iContinueKillNum\":" << s.m_iContinueKillNum << ",";
+                     ss << "\"m_iContinueKillAdd\":" << s.m_iContinueKillAdd << ",";
+                     ss << "\"m_RewardExp\":" << s.m_RewardExp << ",";
+                     ss << "\"m_iBaseExp\":" << s.m_iBaseExp << ",";
+                     ss << "\"m_iLevelExp\":" << s.m_iLevelExp << ",";
+                     ss << "\"m_iLvExpRate\":" << s.m_iLvExpRate << ",";
+                     ss << "\"m_fContinueDeadPara\":" << s.m_fContinueDeadPara << ",";
+                     ss << "\"DeadAndKillTimes\":" << s.DeadAndKillTimes << ",";
+                     ss << "\"m_AssistTimesReward\":" << s.m_AssistTimesReward << ",";
+                     ss << "\"m_bReqMoveUpdate\":" << s.m_bReqMoveUpdate << ",";
+                     ss << "\"bDeathHoldKillCount\":" << s.bDeathHoldKillCount << ",";
+                     ss << "\"mShutDown\":" << s.mShutDown << ",";
+                     ss << "\"lastKillTime\":" << s.lastKillTime << ",";
+                     ss << "\"mutiKillUsefulTime\":" << s.mutiKillUsefulTime << ",";
+                     ss << "\"mutiKillUsefulTimeOn5kill\":" << s.mutiKillUsefulTimeOn5kill << ",";
+                     ss << "\"m_uiLastMoveTime\":" << s.m_uiLastMoveTime << ",";
+                     ss << "\"m_GetGoldTimesBySoldier\":" << s.m_GetGoldTimesBySoldier << ",";
+                     ss << "\"m_BeyondGodlike\":" << s.m_BeyondGodlike << ",";
+                     ss << "\"m_MaxMutiKill\":" << s.m_MaxMutiKill << ",";
+                     ss << "\"m_MaxContinueKill\":" << s.m_MaxContinueKill << ",";
+                     ss << "\"m_singleKill\":" << s.m_singleKill << ",";
+                     ss << "\"m_KillLingZhu\":" << s.m_KillLingZhu << ",";
+                     ss << "\"m_AssistLingZhu\":" << s.m_AssistLingZhu << ",";
+                     ss << "\"KillWildTimes\":" << s.KillWildTimes << ",";
+                     ss << "\"m_WeekKill\":" << s.m_WeekKill << ",";
+                     ss << "\"m_KillShenGui\":" << s.m_KillShenGui << ",";
+                     ss << "\"m_AssistShenGui\":" << s.m_AssistShenGui << ",";
+                     ss << "\"m_KillCdMonster\":" << s.m_KillCdMonster << ",";
+                     ss << "\"m_KillAtkMonster\":" << s.m_KillAtkMonster << ",";
+                     ss << "\"m_KillMePlayerCount\":" << s.m_KillMePlayerCount << ",";
+                     ss << "\"m_CurZoneId\":" << s.m_CurZoneId << ",";
+                     ss << "\"m_HurtTurtle\":" << s.m_HurtTurtle << ",";
+                     ss << "\"m_HurtLord\":" << s.m_HurtLord << ",";
+                     ss << "\"m_ShieldCureHero\":" << s.m_ShieldCureHero << ",";
+                     ss << "\"m_ShieldCureSelf\":" << s.m_ShieldCureSelf << ",";
+                     ss << "\"m_ShieldTeammate\":" << s.m_ShieldTeammate << ",";
+                     ss << "\"m_SufferControlTime\":" << s.m_SufferControlTime << ",";
+                     ss << "\"m_SufferSlowTime\":" << s.m_SufferSlowTime << ",";
+                     ss << "\"m_ControlTime\":" << s.m_ControlTime << ",";
+                     ss << "\"m_KillsWithRedAndBlueBuff\":" << s.m_KillsWithRedAndBlueBuff << ",";
+                     ss << "\"m_MoveDis\":" << s.m_MoveDis << ",";
+                     ss << "\"m_MoveDisTickCount\":" << s.m_MoveDisTickCount << ",";
+                     ss << "\"m_MoveCountPrePosX\":" << s.m_MoveCountPrePosX << ",";
+                     ss << "\"m_MoveCountPrePosY\":" << s.m_MoveCountPrePosY << ",";
+                     ss << "\"m_GoldByWild\":" << s.m_GoldByWild << ",";
+                     ss << "\"m_GoldBySoldier\":" << s.m_GoldBySoldier << ",";
+                     ss << "\"m_GoldByHero\":" << s.m_GoldByHero << ",";
+                     ss << "\"iAllHurtVal\":" << s.iAllHurtVal << ",";
+                     ss << "\"m_CrlTimes\":" << s.m_CrlTimes << ",";
+                     ss << "\"m_iPoisonValue\":" << s.m_iPoisonValue << ",";
+                     ss << "\"m_hurtEnemyWild\":" << s.m_hurtEnemyWild << ",";
+                     ss << "\"m_hurtWildValue\":" << s.m_hurtWildValue << ",";
+                     ss << "\"m_TrunSpeed\":" << s.m_TrunSpeed << ",";
+                     ss << "\"m_GreatGuid\":" << s.m_GreatGuid << ",";
+                     ss << "\"m_bRefuseSelectAIType\":" << s.m_bRefuseSelectAIType << ",";
+                     ss << "\"m_uiLastOperFrameTime\":" << s.m_uiLastOperFrameTime << ",";
+                     ss << "\"SummonSkillId\":" << s.SummonSkillId << ",";
+                     ss << "\"m_SummonStartSkillId\":" << s.m_SummonStartSkillId << ",";
+                     ss << "\"m_RankLv\":" << s.m_RankLv << ",";
+                     ss << "\"m_bigRankLv\":" << s.m_bigRankLv << ",";
+                     ss << "\"m_rankStar\":" << s.m_rankStar << ",";
+                     ss << "\"m_rankNum\":" << s.m_rankNum << ",";
+                     ss << "\"m_lastReliveTime\":" << s.m_lastReliveTime << ",";
+                     ss << "\"m_ReviveTimeMs\":" << s.m_ReviveTimeMs << ",";
+                     ss << "\"m_bFastDie\":" << s.m_bFastDie << ",";
+                     ss << "\"m_EatFruit\":" << s.m_EatFruit << ",";
+                     ss << "\"m_KillByFruit\":" << s.m_KillByFruit << ",";
+                     ss << "\"m_GetFruitOnMin\":" << s.m_GetFruitOnMin << ",";
+                     ss << "\"bAllowRelive\":" << s.bAllowRelive << ",";
+                     ss << "\"m_uiRoleLevel\":" << s.m_uiRoleLevel << ",";
+                     ss << "\"m_iAddGoldValue\":" << s.m_iAddGoldValue << ",";
+                     ss << "\"iMaxHurtValue\":" << s.iMaxHurtValue << ",";
+                     ss << "\"m_iSkinId\":" << s.m_iSkinId << ",";
+                     ss << "\"m_iDragonCrystalId\":" << s.m_iDragonCrystalId << ",";
+                     ss << "\"m_uUserMapID\":" << s.m_uUserMapID << ",";
+                     ss << "\"iLastGiveupEquip\":" << s.iLastGiveupEquip << ",";
+                     ss << "\"m_iSurvivalTime\":" << s.m_iSurvivalTime << ",";
+                     ss << "\"m_iChickenRanking\":" << s.m_iChickenRanking << ",";
+                     ss << "\"m_bEmojiBirthday\":" << s.m_bEmojiBirthday << ",";
+                     ss << "\"logAttackSpeed\":" << s.logAttackSpeed << ",";
+                     ss << "\"doAttackSpeed\":" << s.doAttackSpeed << ",";
+                     ss << "\"m_CommATK_RunTimer\":" << s.m_CommATK_RunTimer << ",";
+                     ss << "\"m_dCommATKSingTime_Mod\":" << s.m_dCommATKSingTime_Mod << ",";
+                     ss << "\"m_CommATKSingTime_LastTimer\":" << s.m_CommATKSingTime_LastTimer << ",";
+                     ss << "\"m_dCommATKCD_Mod\":" << s.m_dCommATKCD_Mod << ",";
+                     ss << "\"m_CommATKCD_LastTimer\":" << s.m_CommATKCD_LastTimer << ",";
+                     ss << "\"m_PriorEquip\":" << s.m_PriorEquip << ",";
+                     ss << "\"m_uHeroEnhanceLevel\":" << s.m_uHeroEnhanceLevel << ",";
+                     ss << "\"m_bGhostHasDied\":" << s.m_bGhostHasDied << ",";
+                     ss << "\"lastCheckDirSymbol\":" << s.lastCheckDirSymbol << ",";
+                     ss << "\"right\":" << s.right << ",";
+                     ss << "\"lastFailedAutoAiSpellCastTime\":" << s.lastFailedAutoAiSpellCastTime << ",";
+                     ss << "\"autoTime\":" << s.autoTime << ",";
+                     ss << "\"m_dXpGrowthDecimal\":" << s.m_dXpGrowthDecimal << ",";
+                     ss << "\"bBornedBoss\":" << s.bBornedBoss << ",";
+                     ss << "\"iPreMutiKillValue\":" << s.iPreMutiKillValue << ",";
+                     ss << "\"iPreContinueKillValue\":" << s.iPreContinueKillValue << ",";
+                     ss << "\"iPreKillLingZhu\":" << s.iPreKillLingZhu << ",";
+                     ss << "\"iPreKillShenGui\":" << s.iPreKillShenGui << ",";
+                     ss << "\"iPreShutDown\":" << s.iPreShutDown << ",";
+                     ss << "\"bCheckFirstBlood\":" << s.bCheckFirstBlood << ",";
+                     ss << "\"iCurrentResult\":" << s.iCurrentResult << ",";
+                     ss << "\"iPreGetResultTime\":" << s.iPreGetResultTime << ",";
+                     ss << "\"iCurKilledResult\":" << s.iCurKilledResult << ",";
+                     ss << "\"iPreKilledResultTime\":" << s.iPreKilledResultTime;
+                     ss << "}";
+                     if (i < g_State.logicPlayers.size() - 1) ss << ",";
+                 }
+                 ss << "]";
              }
-             ss << "]";
+
              ss << "},";
         }
 
         // --- 2. Battle Stats (/infobattle & /timebattle) ---
-        {
+        if (g_State.config.BattleStats || g_State.config.BattleTimer) {
              std::lock_guard<std::mutex> lock(g_State.stateMutex);
              ss << "\"battle_stats\":{";
              ss << "\"time\":" << g_State.battleStats.gameTime << ",";
 
-             // RAW FIELDS FROM ShowFightDataTiny (as requested)
-             ss << "\"m_levelOnSixMin\":" << g_State.battleStats.m_levelOnSixMin << ",";
-             ss << "\"m_LevelOnTwelveMin\":" << g_State.battleStats.m_LevelOnTwelveMin << ",";
-             ss << "\"m_KillNumCrossTower\":" << g_State.battleStats.m_KillNumCrossTower << ",";
-             ss << "\"m_RevengeKillNum\":" << g_State.battleStats.m_RevengeKillNum << ",";
-             ss << "\"m_ExtremeBackHomeNum\":" << g_State.battleStats.m_ExtremeBackHomeNum << ",";
-             ss << "\"bLockGuidChanged\":" << (g_State.battleStats.bLockGuidChanged ? "true" : "false") << ",";
-             ss << "\"m_BackHomeCount\":" << g_State.battleStats.m_BackHomeCount << ",";
-             ss << "\"m_RecoverSuccessfullyCount\":" << g_State.battleStats.m_RecoverSuccessfullyCount << ",";
-             ss << "\"m_BuyEquipCount\":" << g_State.battleStats.m_BuyEquipCount << ",";
-             ss << "\"m_BuyEquipTime\":" << g_State.battleStats.m_BuyEquipTime << ",";
-             ss << "\"m_uSurvivalCount\":" << g_State.battleStats.m_uSurvivalCount << ",";
-             ss << "\"m_uPlayerCount\":" << g_State.battleStats.m_uPlayerCount << ",";
-             ss << "\"m_iCampAKill\":" << g_State.battleStats.m_iCampAKill << ",";
-             ss << "\"m_iCampBKill\":" << g_State.battleStats.m_iCampBKill << ",";
-             ss << "\"m_CampAGold\":" << g_State.battleStats.m_CampAGold << ",";
-             ss << "\"m_CampBGold\":" << g_State.battleStats.m_CampBGold << ",";
-             ss << "\"m_CampAExp\":" << g_State.battleStats.m_CampAExp << ",";
-             ss << "\"m_CampBExp\":" << g_State.battleStats.m_CampBExp << ",";
-             ss << "\"m_CampAKillTower\":" << g_State.battleStats.m_CampAKillTower << ",";
-             ss << "\"m_CampBKillTower\":" << g_State.battleStats.m_CampBKillTower << ",";
-             ss << "\"m_CampAKillLingZhu\":" << g_State.battleStats.m_CampAKillLingZhu << ",";
-             ss << "\"m_CampBKillLingZhu\":" << g_State.battleStats.m_CampBKillLingZhu << ",";
-             ss << "\"m_CampAKillShenGui\":" << g_State.battleStats.m_CampAKillShenGui << ",";
-             ss << "\"m_CampBKillShenGui\":" << g_State.battleStats.m_CampBKillShenGui << ",";
-             ss << "\"m_CampAKillLingzhuOnSuperior\":" << g_State.battleStats.m_CampAKillLingzhuOnSuperior << ",";
-             ss << "\"m_CampBKillLingzhuOnSuperior\":" << g_State.battleStats.m_CampBKillLingzhuOnSuperior << ",";
-             ss << "\"m_CampASuperiorTime\":" << g_State.battleStats.m_CampASuperiorTime << ",";
-             ss << "\"m_CampBSuperiorTime\":" << g_State.battleStats.m_CampBSuperiorTime << ",";
-             ss << "\"m_iFirstBldTime\":" << g_State.battleStats.m_iFirstBldTime << ",";
-             ss << "\"m_iFirstBldKiller\":" << g_State.battleStats.m_iFirstBldKiller << ",";
+             if (g_State.config.BattleStats) {
+                 // RAW FIELDS FROM ShowFightDataTiny (as requested)
+                 ss << "\"m_levelOnSixMin\":" << g_State.battleStats.m_levelOnSixMin << ",";
+                 ss << "\"m_LevelOnTwelveMin\":" << g_State.battleStats.m_LevelOnTwelveMin << ",";
+                 ss << "\"m_KillNumCrossTower\":" << g_State.battleStats.m_KillNumCrossTower << ",";
+                 ss << "\"m_RevengeKillNum\":" << g_State.battleStats.m_RevengeKillNum << ",";
+                 ss << "\"m_ExtremeBackHomeNum\":" << g_State.battleStats.m_ExtremeBackHomeNum << ",";
+                 ss << "\"bLockGuidChanged\":" << (g_State.battleStats.bLockGuidChanged ? "true" : "false") << ",";
+                 ss << "\"m_BackHomeCount\":" << g_State.battleStats.m_BackHomeCount << ",";
+                 ss << "\"m_RecoverSuccessfullyCount\":" << g_State.battleStats.m_RecoverSuccessfullyCount << ",";
+                 ss << "\"m_BuyEquipCount\":" << g_State.battleStats.m_BuyEquipCount << ",";
+                 ss << "\"m_BuyEquipTime\":" << g_State.battleStats.m_BuyEquipTime << ",";
+                 ss << "\"m_uSurvivalCount\":" << g_State.battleStats.m_uSurvivalCount << ",";
+                 ss << "\"m_uPlayerCount\":" << g_State.battleStats.m_uPlayerCount << ",";
+                 ss << "\"m_iCampAKill\":" << g_State.battleStats.m_iCampAKill << ",";
+                 ss << "\"m_iCampBKill\":" << g_State.battleStats.m_iCampBKill << ",";
+                 ss << "\"m_CampAGold\":" << g_State.battleStats.m_CampAGold << ",";
+                 ss << "\"m_CampBGold\":" << g_State.battleStats.m_CampBGold << ",";
+                 ss << "\"m_CampAExp\":" << g_State.battleStats.m_CampAExp << ",";
+                 ss << "\"m_CampBExp\":" << g_State.battleStats.m_CampBExp << ",";
+                 ss << "\"m_CampAKillTower\":" << g_State.battleStats.m_CampAKillTower << ",";
+                 ss << "\"m_CampBKillTower\":" << g_State.battleStats.m_CampBKillTower << ",";
+                 ss << "\"m_CampAKillLingZhu\":" << g_State.battleStats.m_CampAKillLingZhu << ",";
+                 ss << "\"m_CampBKillLingZhu\":" << g_State.battleStats.m_CampBKillLingZhu << ",";
+                 ss << "\"m_CampAKillShenGui\":" << g_State.battleStats.m_CampAKillShenGui << ",";
+                 ss << "\"m_CampBKillShenGui\":" << g_State.battleStats.m_CampBKillShenGui << ",";
+                 ss << "\"m_CampAKillLingzhuOnSuperior\":" << g_State.battleStats.m_CampAKillLingzhuOnSuperior << ",";
+                 ss << "\"m_CampBKillLingzhuOnSuperior\":" << g_State.battleStats.m_CampBKillLingzhuOnSuperior << ",";
+                 ss << "\"m_CampASuperiorTime\":" << g_State.battleStats.m_CampASuperiorTime << ",";
+                 ss << "\"m_CampBSuperiorTime\":" << g_State.battleStats.m_CampBSuperiorTime << ",";
+                 ss << "\"m_iFirstBldTime\":" << g_State.battleStats.m_iFirstBldTime << ",";
+                 ss << "\"m_iFirstBldKiller\":" << g_State.battleStats.m_iFirstBldKiller << ",";
 
-             // Also map legacy fields to keep structure valid but use new names under the hood
-             g_State.battleStats.campAScore = g_State.battleStats.m_iCampAKill;
-             g_State.battleStats.campBScore = g_State.battleStats.m_iCampBKill;
-             g_State.battleStats.campAGold = g_State.battleStats.m_CampAGold;
-             g_State.battleStats.campBGold = g_State.battleStats.m_CampBGold;
-             g_State.battleStats.campAKillTower = g_State.battleStats.m_CampAKillTower;
-             g_State.battleStats.campBKillTower = g_State.battleStats.m_CampBKillTower;
-             g_State.battleStats.campAKillLord = g_State.battleStats.m_CampAKillLingZhu;
-             g_State.battleStats.campBKillLord = g_State.battleStats.m_CampBKillLingZhu;
-             g_State.battleStats.campAKillTurtle = g_State.battleStats.m_CampAKillShenGui;
-             g_State.battleStats.campBKillTurtle = g_State.battleStats.m_CampBKillShenGui;
-
-             // Add elapsed time to JSON
-             ss << ",\"elapsed_time\":" << g_elapsedBattleTime.count();
-
-             ss << ",\"players\":[";
-             for (size_t i = 0; i < g_State.battlePlayers.size(); ++i) {
-                 const auto& bp = g_State.battlePlayers[i];
-                 ss << "{";
-                 ss << "\"uGuid\":" << bp.uGuid << ",";
-                 ss << "\"playerName\":\"" << bp.playerName << "\","; // Uses original name
-                 ss << "\"camp\":" << bp.campType << ",";
-                 ss << "\"kill\":" << bp.kill << ",";
-                 ss << "\"death\":" << bp.death << ",";
-                 ss << "\"assist\":" << bp.assist << ",";
-                 ss << "\"gold\":" << bp.gold << ",";
-                 ss << "\"totalGold\":" << bp.totalGold;
-                 ss << "}";
-                 if (i < g_State.battlePlayers.size() - 1) ss << ",";
+                 // Also map legacy fields to keep structure valid but use new names under the hood
+                 g_State.battleStats.campAScore = g_State.battleStats.m_iCampAKill;
+                 g_State.battleStats.campBScore = g_State.battleStats.m_iCampBKill;
+                 g_State.battleStats.campAGold = g_State.battleStats.m_CampAGold;
+                 g_State.battleStats.campBGold = g_State.battleStats.m_CampBGold;
+                 g_State.battleStats.campAKillTower = g_State.battleStats.m_CampAKillTower;
+                 g_State.battleStats.campBKillTower = g_State.battleStats.m_CampBKillTower;
+                 g_State.battleStats.campAKillLord = g_State.battleStats.m_CampAKillLingZhu;
+                 g_State.battleStats.campBKillLord = g_State.battleStats.m_CampBKillLingZhu;
+                 g_State.battleStats.campAKillTurtle = g_State.battleStats.m_CampAKillShenGui;
+                 g_State.battleStats.campBKillTurtle = g_State.battleStats.m_CampBKillShenGui;
              }
-             ss << "]";
+
+             if (g_State.config.BattleTimer) {
+                 // Add elapsed time to JSON
+                 ss << ",\"elapsed_time\":" << g_elapsedBattleTime.count();
+             }
+
+             if (g_State.config.BattleStats) {
+                 ss << ",\"players\":[";
+                 for (size_t i = 0; i < g_State.battlePlayers.size(); ++i) {
+                     const auto& bp = g_State.battlePlayers[i];
+                     ss << "{";
+                     ss << "\"uGuid\":" << bp.uGuid << ",";
+                     ss << "\"playerName\":\"" << bp.playerName << "\","; // Uses original name
+                     ss << "\"camp\":" << bp.campType << ",";
+                     ss << "\"kill\":" << bp.kill << ",";
+                     ss << "\"death\":" << bp.death << ",";
+                     ss << "\"assist\":" << bp.assist << ",";
+                     ss << "\"gold\":" << bp.gold << ",";
+                     ss << "\"totalGold\":" << bp.totalGold;
+                     ss << "}";
+                     if (i < g_State.battlePlayers.size() - 1) ss << ",";
+                 }
+                 ss << "]";
+             }
              ss << "},";
         }
 

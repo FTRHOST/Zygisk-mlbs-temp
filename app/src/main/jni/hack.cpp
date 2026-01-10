@@ -47,9 +47,9 @@ void hack_start(const char *_game_data_dir) {
 
     LOGI("%s: %p - %p", TargetLibName, g_TargetModule.start_address, g_TargetModule.end_address);
 
-    // 2. Start IPC
+    // 2. Start IPC & Load Config
     LOGI("MLBS_CORE: Main Process confirmed (LibLogic found). Starting IPC Server...");
-    g_State.roomInfoEnabled = true;
+    LoadConfig(g_State.config); // Load initial configuration
     StartIpcServer(); 
 
     // 3. Attach Il2Cpp and Init Logic
@@ -71,8 +71,8 @@ void hack_prepare(const char *_game_data_dir) {
     }
     xdl_close(egl_handle);
 
-    // Default enable features since we have no menu
-    g_State.roomInfoEnabled = true;
+    // Initial state setup is now handled by LoadConfig in hack_start
+    // g_State.roomInfoEnabled = true; // Removed legacy default
 
     hack_start(_game_data_dir);
 }

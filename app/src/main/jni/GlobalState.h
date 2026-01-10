@@ -7,6 +7,14 @@
 #include <chrono>
 #include <map>
 
+// Feature Configuration
+struct Config {
+    bool RoomInfo = true;
+    bool BattleStats = true;
+    bool BattleTimer = true;
+    bool LogicPlayerStats = true; // For detailed logic player info
+};
+
 // Info untuk satu pemain (Room Data - Static/Pre-Game)
 struct PlayerData {
     // Basic Info
@@ -648,7 +656,9 @@ struct GlobalState {
     std::mutex stateMutex;
 
     int battleState = 0; // 0: Lobby, 2: Draft, 3: In-Game, 6/7: Loading/Battle
-    bool roomInfoEnabled = true;
+
+    // Feature toggles
+    Config config;
 
     // Data Stores
     std::vector<PlayerData> players; // From SystemData.RoomData
@@ -664,3 +674,7 @@ struct GlobalState {
 
 // Deklarasi instance global
 extern GlobalState g_State;
+
+// Config Manager Functions
+void LoadConfig(Config& config);
+void SaveConfig(const Config& config);
