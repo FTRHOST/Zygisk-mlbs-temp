@@ -53,8 +53,11 @@ void* g_UIRankHero_Instance = nullptr; // For BanPick
 // --- HOOKING UIRankHero ---
 // We try to hook multiple methods to catch the instance
 void (*old_UIRankHero_OnUpdate)(void* instance);
+void (*old_UIRankHero_Update)(void* instance);
 void (*old_UIRankHero_Active)(void* instance, void* arg);
 void (*old_UIRankHero_InitView)(void* instance);
+void (*old_UIRankHero_DeActive)(void* instance);
+void (*old_UIRankHero_DeActivePick)(void* instance);
 
 void new_UIRankHero_OnUpdate(void* instance) {
     if (instance != nullptr) {
@@ -62,6 +65,15 @@ void new_UIRankHero_OnUpdate(void* instance) {
     }
     if (old_UIRankHero_OnUpdate) {
         old_UIRankHero_OnUpdate(instance);
+    }
+}
+
+void new_UIRankHero_Update(void* instance) {
+    if (instance != nullptr) {
+        g_UIRankHero_Instance = instance;
+    }
+    if (old_UIRankHero_Update) {
+        old_UIRankHero_Update(instance);
     }
 }
 
@@ -80,6 +92,26 @@ void new_UIRankHero_InitView(void* instance) {
     }
     if (old_UIRankHero_InitView) {
         old_UIRankHero_InitView(instance);
+    }
+}
+
+void new_UIRankHero_DeActive(void* instance) {
+    if (instance == g_UIRankHero_Instance) {
+        g_UIRankHero_Instance = nullptr;
+        LOGI("UIRankHero DeActive - Instance Cleared");
+    }
+    if (old_UIRankHero_DeActive) {
+        old_UIRankHero_DeActive(instance);
+    }
+}
+
+void new_UIRankHero_DeActivePick(void* instance) {
+    if (instance == g_UIRankHero_Instance) {
+        g_UIRankHero_Instance = nullptr;
+        LOGI("UIRankHero DeActivePick - Instance Cleared");
+    }
+    if (old_UIRankHero_DeActivePick) {
+        old_UIRankHero_DeActivePick(instance);
     }
 }
 
@@ -933,7 +965,6 @@ void MonitorBattleState() {
                  ss << "\"iMPLCertifyTime\":" << p.iMPLCertifyTime << ",";
                  ss << "\"iMPLCertifyID\":" << p.iMPLCertifyID << ",";
                  ss << "\"iHeroUseCount\":" << p.iHeroUseCount << ",";
-                 ss << "\"iMythPoint\":" << p.iMythPoint << ",";
                  ss << "\"bMythEvaled\":" << p.bMythEvaled << ",";
                  ss << "\"iDefenceFlag\":" << p.iDefenceFlag << ",";
                  ss << "\"iDefenPoint\":" << p.iDefenPoint << ",";
@@ -1241,6 +1272,7 @@ void MonitorBattleState() {
                  ss << "\"iPreGetResultTime\":" << s.iPreGetResultTime << ",";
                  ss << "\"iCurKilledResult\":" << s.iCurKilledResult << ",";
                  ss << "\"iPreKilledResultTime\":" << s.iPreKilledResultTime;
+
                  ss << "}";
                  if (i < g_State.logicPlayers.size() - 1) ss << ",";
              }
@@ -1286,24 +1318,19 @@ void MonitorBattleState() {
              ss << "\"m_iFirstBldTime\":" << g_State.battleStats.m_iFirstBldTime << ",";
              ss << "\"m_iFirstBldKiller\":" << g_State.battleStats.m_iFirstBldKiller << ",";
 
-             // Individual Player Stats
-             ss << "\"players\":[";
-             for (size_t i = 0; i < g_State.battlePlayers.size(); ++i) {
-                 const auto& bp = g_State.battlePlayers[i];
-                 ss << "{";
-                 ss << "\"uGuid\":" << bp.uGuid << ",";
-                 ss << "\"playerName\":\"" << bp.playerName << "\","; // Uses original name
-                 ss << "\"camp\":" << bp.campType << ",";
-                 ss << "\"kill\":" << bp.kill << ",";
-                 ss << "\"death\":" << bp.death << ",";
-                 ss << "\"assist\":" << bp.assist << ",";
-                 ss << "\"gold\":" << bp.gold << ",";
-                 ss << "\"totalGold\":" << bp.totalGold;
-                 ss << "}";
-                 if (i < g_State.battlePlayers.size() - 1) ss << ",";
-             }
-             ss << "]";
-             ss << "},";
+             // Also map legacy fields to keep structure valid but use new names under the hood
+             g_State.battleStats.campAScore = stats.m_iCampAKill;
+             g_State.battleStats.campBScore = stats.m_iCampBKill;
+             g_State.battleStats.campAGold = stats.m_CampAGold;
+             g_State.battleStats.campBGold = stats.m_CampBGold;
+             g_State.battleStats.campAKillTower = stats.m_CampAKillTower;
+             g_State.battleStats.campBKillTower = stats.m_CampBKillTower;
+             g_State.battleStats.campAKillLord = stats.m_CampAKillLingZhu;
+             g_State.battleStats.campBKillLord = stats.m_CampBKillLingZhu;
+             g_State.battleStats.campAKillTurtle = stats.m_CampAKillShenGui;
+             g_State.battleStats.campBKillTurtle = stats.m_CampBKillShenGui;
+
+             g_State.battlePlayers = localBattlePlayers;
         }
 
         // --- 3. Ban Pick (/banpick) ---
@@ -1381,7 +1408,16 @@ void InitGameLogic() {
         LOGI("Failed to find UIRankHero.OnUpdate");
     }
 
-    // 2. Try Active (1 arg)
+    // 2. Try Update (fallback)
+    void* pUIRankHero_Update = Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE(""), OBFUSCATE("UIRankHero"), OBFUSCATE("Update"), 0);
+    if (pUIRankHero_Update) {
+        DobbyHook(pUIRankHero_Update, (void*)new_UIRankHero_Update, (void**)&old_UIRankHero_Update);
+        LOGI("Hooked UIRankHero.Update at %p", pUIRankHero_Update);
+    } else {
+        LOGI("Failed to find UIRankHero.Update");
+    }
+
+    // 3. Try Active (1 arg)
     void* pUIRankHero_Active = Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE(""), OBFUSCATE("UIRankHero"), OBFUSCATE("Active"), 1);
     if (pUIRankHero_Active) {
         DobbyHook(pUIRankHero_Active, (void*)new_UIRankHero_Active, (void**)&old_UIRankHero_Active);
@@ -1390,12 +1426,30 @@ void InitGameLogic() {
         LOGI("Failed to find UIRankHero.Active");
     }
 
-    // 3. Try InitView (0 args)
+    // 4. Try InitView (0 args)
     void* pUIRankHero_InitView = Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE(""), OBFUSCATE("UIRankHero"), OBFUSCATE("InitView"), 0);
     if (pUIRankHero_InitView) {
         DobbyHook(pUIRankHero_InitView, (void*)new_UIRankHero_InitView, (void**)&old_UIRankHero_InitView);
         LOGI("Hooked UIRankHero.InitView at %p", pUIRankHero_InitView);
     } else {
         LOGI("Failed to find UIRankHero.InitView");
+    }
+
+    // 5. Try DeActive (Cleanup)
+    void* pUIRankHero_DeActive = Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE(""), OBFUSCATE("UIRankHero"), OBFUSCATE("DeActive"), 0);
+    if (pUIRankHero_DeActive) {
+        DobbyHook(pUIRankHero_DeActive, (void*)new_UIRankHero_DeActive, (void**)&old_UIRankHero_DeActive);
+        LOGI("Hooked UIRankHero.DeActive at %p", pUIRankHero_DeActive);
+    } else {
+        LOGI("Failed to find UIRankHero.DeActive");
+    }
+
+    // 6. Try DeActivePick (Cleanup)
+    void* pUIRankHero_DeActivePick = Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE(""), OBFUSCATE("UIRankHero"), OBFUSCATE("DeActivePick"), 0);
+    if (pUIRankHero_DeActivePick) {
+        DobbyHook(pUIRankHero_DeActivePick, (void*)new_UIRankHero_DeActivePick, (void**)&old_UIRankHero_DeActivePick);
+        LOGI("Hooked UIRankHero.DeActivePick at %p", pUIRankHero_DeActivePick);
+    } else {
+        LOGI("Failed to find UIRankHero.DeActivePick");
     }
 }
