@@ -5,6 +5,7 @@
 #include <mutex>
 #include <map>
 #include <chrono>
+#include <map>
 
 // Info untuk satu pemain (Room Data - Static/Pre-Game)
 struct PlayerData {
@@ -541,16 +542,30 @@ struct LogicPlayerStats {
     uint32_t iPreKilledResultTime;
 };
 
+enum ChooseState {
+    Unknow = 0,
+    Road = 1,
+    Ban = 2,
+    Pick = 3,
+    ChangeHero = 4
+};
+
 // Ban/Pick State
 struct BanPickState {
     bool isOpen;
-    uint32_t currentPhase; // 0: None, 1: Ban, 2: Pick
+    int32_t curState;
     uint32_t banTime;
     uint32_t pickTime;
-    std::vector<uint32_t> banOrder; // Hero IDs
-    std::vector<uint32_t> pickOrder; // Hero IDs
-    std::map<uint32_t, uint32_t> banList; // HeroID -> ?
-    std::map<uint32_t, uint32_t> pickList; // HeroID -> ?
+    uint32_t changeHeroTime;
+    uint32_t preSelectRoadTime;
+    uint32_t startBanTime;
+    uint32_t startSelectTime;
+    uint32_t startExChangeTime;
+    uint32_t startPreSelectRoadTime;
+    std::vector<uint32_t> banOrder; // Hero IDs or Player IDs (usually list of IDs representing slots)
+    std::vector<uint32_t> pickOrder; // Hero IDs or Player IDs
+    std::map<uint32_t, uint32_t> banList; // PlayerID -> HeroID
+    std::map<uint32_t, uint32_t> pickList; // PlayerID -> HeroID
 };
 
 // Global Battle Stats (Expanded with all requested raw fields)

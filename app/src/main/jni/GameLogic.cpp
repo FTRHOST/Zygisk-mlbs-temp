@@ -122,6 +122,20 @@ void UpdateBanPickState() {
     BanPickState bpState = {};
     bpState.isOpen = true;
 
+    // Read State
+    READ_FIELD(bpState.curState, int32_t, UIRankHero_m_State);
+
+    // Read Timers
+    READ_FIELD(bpState.banTime, uint32_t, UIRankHero_iBanTimeSpan);
+    READ_FIELD(bpState.pickTime, uint32_t, UIRankHero_iPickTimeSpan);
+    READ_FIELD(bpState.changeHeroTime, uint32_t, UIRankHero_iChangeHeroTimeSpan);
+    READ_FIELD(bpState.preSelectRoadTime, uint32_t, UIRankHero_iPreSelectRoadTimeSpan);
+    READ_FIELD(bpState.startBanTime, uint32_t, UIRankHero__startBanTime);
+    READ_FIELD(bpState.startSelectTime, uint32_t, UIRankHero__startSelectTime);
+    READ_FIELD(bpState.startExChangeTime, uint32_t, UIRankHero__startExChangeTime);
+    READ_FIELD(bpState.startPreSelectRoadTime, uint32_t, UIRankHero__startPreSelectRoadTime);
+
+    // Read Lists (Orders)
     if (UIRankHero_banOrder > 0) {
         void* banOrderList = *(void**)((uintptr_t)pawn + UIRankHero_banOrder);
         if (banOrderList) {
@@ -145,6 +159,42 @@ void UpdateBanPickState() {
             }
         }
     }
+
+    // Read Dictionaries (BanList & PickList)
+    auto readDictionary = [&](uintptr_t dictOffset, std::map<uint32_t, uint32_t>& targetMap, uintptr_t specificOffset, uintptr_t fallbackOffset) {
+        if (dictOffset > 0) {
+            void* dictPtr = *(void**)((uintptr_t)pawn + dictOffset);
+            if (dictPtr) {
+                // Dictionary<uint32_t, BanInfo/SelectInfo*>
+                auto* dictionary = (Dictionary<uint32_t, void*>*)dictPtr;
+                if (dictionary->entries && dictionary->count > 0) {
+                    auto entries = dictionary->entries->toCPPlist();
+                    for (auto& entry : entries) {
+                        uint32_t playerId = entry.key;
+                        void* infoObj = entry.value; // Pointer to BanInfo or SelectInfo
+
+                        if (infoObj) {
+                            uint32_t heroId = 0;
+                            // Priority 1: Specific Offset
+                            if (specificOffset > 0) {
+                                heroId = *(uint32_t*)((uintptr_t)infoObj + specificOffset);
+                            }
+                            // Priority 2: Fallback (Base class) Offset
+                            else if (fallbackOffset > 0) {
+                                heroId = *(uint32_t*)((uintptr_t)infoObj + fallbackOffset);
+                            }
+
+                            if (heroId > 0 || specificOffset > 0 || fallbackOffset > 0) // Only add if we actually tried reading something
+                                targetMap[playerId] = heroId;
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    readDictionary(UIRankHero_banList, bpState.banList, UIRankHero_BanInfo_heroId, UIRankHero_RankHeroInfo_heroId);
+    readDictionary(UIRankHero_pickList, bpState.pickList, UIRankHero_SelectInfo_heroId, UIRankHero_RankHeroInfo_heroId);
 
     {
         std::lock_guard<std::mutex> lock(g_State.stateMutex);
@@ -1176,69 +1226,25 @@ void MonitorBattleState() {
              ss << "},";
         }
 
-        // --- 2. Battle Stats (/infobattle & /timebattle) ---
-        {
-             std::lock_guard<std::mutex> lock(g_State.stateMutex);
-             ss << "\"battle_stats\":{";
-             ss << "\"time\":" << g_State.battleStats.gameTime << ",";
-
-             // RAW FIELDS FROM ShowFightDataTiny (as requested)
-             ss << "\"m_levelOnSixMin\":" << g_State.battleStats.m_levelOnSixMin << ",";
-             ss << "\"m_LevelOnTwelveMin\":" << g_State.battleStats.m_LevelOnTwelveMin << ",";
-             ss << "\"m_KillNumCrossTower\":" << g_State.battleStats.m_KillNumCrossTower << ",";
-             ss << "\"m_RevengeKillNum\":" << g_State.battleStats.m_RevengeKillNum << ",";
-             ss << "\"m_ExtremeBackHomeNum\":" << g_State.battleStats.m_ExtremeBackHomeNum << ",";
-             ss << "\"bLockGuidChanged\":" << (g_State.battleStats.bLockGuidChanged ? "true" : "false") << ",";
-             ss << "\"m_BackHomeCount\":" << g_State.battleStats.m_BackHomeCount << ",";
-             ss << "\"m_RecoverSuccessfullyCount\":" << g_State.battleStats.m_RecoverSuccessfullyCount << ",";
-             ss << "\"m_BuyEquipCount\":" << g_State.battleStats.m_BuyEquipCount << ",";
-             ss << "\"m_BuyEquipTime\":" << g_State.battleStats.m_BuyEquipTime << ",";
-             ss << "\"m_uSurvivalCount\":" << g_State.battleStats.m_uSurvivalCount << ",";
-             ss << "\"m_uPlayerCount\":" << g_State.battleStats.m_uPlayerCount << ",";
-             ss << "\"m_iCampAKill\":" << g_State.battleStats.m_iCampAKill << ",";
-             ss << "\"m_iCampBKill\":" << g_State.battleStats.m_iCampBKill << ",";
-             ss << "\"m_CampAGold\":" << g_State.battleStats.m_CampAGold << ",";
-             ss << "\"m_CampBGold\":" << g_State.battleStats.m_CampBGold << ",";
-             ss << "\"m_CampAExp\":" << g_State.battleStats.m_CampAExp << ",";
-             ss << "\"m_CampBExp\":" << g_State.battleStats.m_CampBExp << ",";
-             ss << "\"m_CampAKillTower\":" << g_State.battleStats.m_CampAKillTower << ",";
-             ss << "\"m_CampBKillTower\":" << g_State.battleStats.m_CampBKillTower << ",";
-             ss << "\"m_CampAKillLingZhu\":" << g_State.battleStats.m_CampAKillLingZhu << ",";
-             ss << "\"m_CampBKillLingZhu\":" << g_State.battleStats.m_CampBKillLingZhu << ",";
-             ss << "\"m_CampAKillShenGui\":" << g_State.battleStats.m_CampAKillShenGui << ",";
-             ss << "\"m_CampBKillShenGui\":" << g_State.battleStats.m_CampBKillShenGui << ",";
-             ss << "\"m_CampAKillLingzhuOnSuperior\":" << g_State.battleStats.m_CampAKillLingzhuOnSuperior << ",";
-             ss << "\"m_CampBKillLingzhuOnSuperior\":" << g_State.battleStats.m_CampBKillLingzhuOnSuperior << ",";
-             ss << "\"m_CampASuperiorTime\":" << g_State.battleStats.m_CampASuperiorTime << ",";
-             ss << "\"m_CampBSuperiorTime\":" << g_State.battleStats.m_CampBSuperiorTime << ",";
-             ss << "\"m_iFirstBldTime\":" << g_State.battleStats.m_iFirstBldTime << ",";
-             ss << "\"m_iFirstBldKiller\":" << g_State.battleStats.m_iFirstBldKiller << ",";
-
-             // Individual Player Stats
-             ss << "\"players\":[";
-             for (size_t i = 0; i < g_State.battlePlayers.size(); ++i) {
-                 const auto& bp = g_State.battlePlayers[i];
-                 ss << "{";
-                 ss << "\"uGuid\":" << bp.uGuid << ",";
-                 ss << "\"playerName\":\"" << bp.playerName << "\","; // Uses original name
-                 ss << "\"camp\":" << bp.campType << ",";
-                 ss << "\"kill\":" << bp.kill << ",";
-                 ss << "\"death\":" << bp.death << ",";
-                 ss << "\"assist\":" << bp.assist << ",";
-                 ss << "\"gold\":" << bp.gold << ",";
-                 ss << "\"totalGold\":" << bp.totalGold;
-                 ss << "}";
-                 if (i < g_State.battlePlayers.size() - 1) ss << ",";
-             }
-             ss << "]";
-             ss << "},";
-        }
-
         // --- 3. Ban Pick (/banpick) ---
         {
              std::lock_guard<std::mutex> lock(g_State.stateMutex);
              ss << "\"ban_pick\":{";
              ss << "\"is_open\":" << (g_State.banPickState.isOpen ? "true" : "false") << ",";
+
+             // New Fields
+             ss << "\"state\":" << g_State.banPickState.curState << ",";
+             ss << "\"timers\":{";
+             ss << "\"ban_time\":" << g_State.banPickState.banTime << ",";
+             ss << "\"pick_time\":" << g_State.banPickState.pickTime << ",";
+             ss << "\"change_hero_time\":" << g_State.banPickState.changeHeroTime << ",";
+             ss << "\"pre_select_road_time\":" << g_State.banPickState.preSelectRoadTime << ",";
+             ss << "\"start_ban_time\":" << g_State.banPickState.startBanTime << ",";
+             ss << "\"start_select_time\":" << g_State.banPickState.startSelectTime << ",";
+             ss << "\"start_change_time\":" << g_State.banPickState.startExChangeTime << ",";
+             ss << "\"start_pre_select_road_time\":" << g_State.banPickState.startPreSelectRoadTime;
+             ss << "},";
+
              ss << "\"ban_order\":[";
              for(size_t i=0; i<g_State.banPickState.banOrder.size(); i++) {
                  ss << g_State.banPickState.banOrder[i];
@@ -1250,7 +1256,28 @@ void MonitorBattleState() {
                  ss << g_State.banPickState.pickOrder[i];
                  if(i < g_State.banPickState.pickOrder.size() - 1) ss << ",";
              }
+             ss << "],";
+
+             // Ban List (PlayerID -> HeroID)
+             ss << "\"ban_list\":[";
+             size_t bCount = 0;
+             for(auto const& [pid, hid] : g_State.banPickState.banList) {
+                 ss << "{\"player_id\":" << pid << ",\"hero_id\":" << hid << "}";
+                 if(bCount < g_State.banPickState.banList.size() - 1) ss << ",";
+                 bCount++;
+             }
+             ss << "],";
+
+             // Pick List (PlayerID -> HeroID)
+             ss << "\"pick_list\":[";
+             size_t pCount = 0;
+             for(auto const& [pid, hid] : g_State.banPickState.pickList) {
+                 ss << "{\"player_id\":" << pid << ",\"hero_id\":" << hid << "}";
+                 if(pCount < g_State.banPickState.pickList.size() - 1) ss << ",";
+                 pCount++;
+             }
              ss << "]";
+
              ss << "}";
         }
 
