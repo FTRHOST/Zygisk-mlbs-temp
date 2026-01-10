@@ -853,6 +853,31 @@ void MonitorBattleState() {
     if (isManagerValid) {
         currentBattleState = GetBattleState(logicBattleManager);
 
+        // --- Battle Timer Logic (Run on state 6, Stop on 7) ---
+        // Assuming currentBattleState is the state value (6, 7, etc.)
+        if (currentBattleState == 6) {
+            if (!g_isBattleTimerRunning) {
+                g_battleStartTime = std::chrono::steady_clock::now();
+                g_isBattleTimerRunning = true;
+                g_elapsedBattleTime = std::chrono::duration<float>(0);
+            } else {
+                g_elapsedBattleTime = std::chrono::steady_clock::now() - g_battleStartTime;
+            }
+        } else if (currentBattleState == 7) {
+            g_isBattleTimerRunning = false;
+            // Freeze elapsed time (it stops updating)
+        } else {
+            // For other states (e.g. 3), do we reset or keep running?
+            // "berjalan ketika battle state itu di value 6 dan berhenti di value 7"
+            // Implies it might not be running in other states, or 6 is the *start*.
+            // I'll leave it running if it was started, unless 7 stops it.
+            // If we transition 6 -> 3 -> 7?
+            // I'll keep updating if running and not 7.
+            if (g_isBattleTimerRunning) {
+                 g_elapsedBattleTime = std::chrono::steady_clock::now() - g_battleStartTime;
+            }
+        }
+
         {
             std::lock_guard<std::mutex> lock(g_State.stateMutex);
             if (currentBattleState != g_State.battleState) {
@@ -965,6 +990,7 @@ void MonitorBattleState() {
                  ss << "\"iMPLCertifyTime\":" << p.iMPLCertifyTime << ",";
                  ss << "\"iMPLCertifyID\":" << p.iMPLCertifyID << ",";
                  ss << "\"iHeroUseCount\":" << p.iHeroUseCount << ",";
+                 ss << "\"iMythPoint\":" << p.iMythPoint << ",";
                  ss << "\"bMythEvaled\":" << p.bMythEvaled << ",";
                  ss << "\"iDefenceFlag\":" << p.iDefenceFlag << ",";
                  ss << "\"iDefenPoint\":" << p.iDefenPoint << ",";
@@ -1319,18 +1345,37 @@ void MonitorBattleState() {
              ss << "\"m_iFirstBldKiller\":" << g_State.battleStats.m_iFirstBldKiller << ",";
 
              // Also map legacy fields to keep structure valid but use new names under the hood
-             g_State.battleStats.campAScore = stats.m_iCampAKill;
-             g_State.battleStats.campBScore = stats.m_iCampBKill;
-             g_State.battleStats.campAGold = stats.m_CampAGold;
-             g_State.battleStats.campBGold = stats.m_CampBGold;
-             g_State.battleStats.campAKillTower = stats.m_CampAKillTower;
-             g_State.battleStats.campBKillTower = stats.m_CampBKillTower;
-             g_State.battleStats.campAKillLord = stats.m_CampAKillLingZhu;
-             g_State.battleStats.campBKillLord = stats.m_CampBKillLingZhu;
-             g_State.battleStats.campAKillTurtle = stats.m_CampAKillShenGui;
-             g_State.battleStats.campBKillTurtle = stats.m_CampBKillShenGui;
+             g_State.battleStats.campAScore = g_State.battleStats.m_iCampAKill;
+             g_State.battleStats.campBScore = g_State.battleStats.m_iCampBKill;
+             g_State.battleStats.campAGold = g_State.battleStats.m_CampAGold;
+             g_State.battleStats.campBGold = g_State.battleStats.m_CampBGold;
+             g_State.battleStats.campAKillTower = g_State.battleStats.m_CampAKillTower;
+             g_State.battleStats.campBKillTower = g_State.battleStats.m_CampBKillTower;
+             g_State.battleStats.campAKillLord = g_State.battleStats.m_CampAKillLingZhu;
+             g_State.battleStats.campBKillLord = g_State.battleStats.m_CampBKillLingZhu;
+             g_State.battleStats.campAKillTurtle = g_State.battleStats.m_CampAKillShenGui;
+             g_State.battleStats.campBKillTurtle = g_State.battleStats.m_CampBKillShenGui;
 
-             g_State.battlePlayers = localBattlePlayers;
+             // Add elapsed time to JSON
+             ss << ",\"elapsed_time\":" << g_elapsedBattleTime.count();
+
+             ss << ",\"players\":[";
+             for (size_t i = 0; i < g_State.battlePlayers.size(); ++i) {
+                 const auto& bp = g_State.battlePlayers[i];
+                 ss << "{";
+                 ss << "\"uGuid\":" << bp.uGuid << ",";
+                 ss << "\"playerName\":\"" << bp.playerName << "\","; // Uses original name
+                 ss << "\"camp\":" << bp.campType << ",";
+                 ss << "\"kill\":" << bp.kill << ",";
+                 ss << "\"death\":" << bp.death << ",";
+                 ss << "\"assist\":" << bp.assist << ",";
+                 ss << "\"gold\":" << bp.gold << ",";
+                 ss << "\"totalGold\":" << bp.totalGold;
+                 ss << "}";
+                 if (i < g_State.battlePlayers.size() - 1) ss << ",";
+             }
+             ss << "]";
+             ss << "},";
         }
 
         // --- 3. Ban Pick (/banpick) ---
