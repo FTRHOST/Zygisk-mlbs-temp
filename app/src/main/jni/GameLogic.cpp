@@ -51,13 +51,35 @@ void* g_UIRankHero_Instance = nullptr; // For BanPick
     if(offset > 0) target = (uintptr_t)(*(void**)((uintptr_t)pawn + offset));
 
 // --- HOOKING UIRankHero ---
+// We try to hook multiple methods to catch the instance
 void (*old_UIRankHero_OnUpdate)(void* instance);
+void (*old_UIRankHero_Active)(void* instance, void* arg);
+void (*old_UIRankHero_InitView)(void* instance);
+
 void new_UIRankHero_OnUpdate(void* instance) {
     if (instance != nullptr) {
         g_UIRankHero_Instance = instance;
     }
     if (old_UIRankHero_OnUpdate) {
         old_UIRankHero_OnUpdate(instance);
+    }
+}
+
+void new_UIRankHero_Active(void* instance, void* arg) {
+    if (instance != nullptr) {
+        g_UIRankHero_Instance = instance;
+    }
+    if (old_UIRankHero_Active) {
+        old_UIRankHero_Active(instance, arg);
+    }
+}
+
+void new_UIRankHero_InitView(void* instance) {
+    if (instance != nullptr) {
+        g_UIRankHero_Instance = instance;
+    }
+    if (old_UIRankHero_InitView) {
+        old_UIRankHero_InitView(instance);
     }
 }
 
@@ -1226,6 +1248,59 @@ void MonitorBattleState() {
              ss << "},";
         }
 
+        // --- 2. Battle Stats (/infobattle & /timebattle) ---
+        {
+             std::lock_guard<std::mutex> lock(g_State.stateMutex);
+             ss << "\"battle_stats\":{";
+             ss << "\"time\":" << g_State.battleStats.gameTime << ",";
+
+             // RAW FIELDS FROM ShowFightDataTiny (as requested)
+             ss << "\"m_levelOnSixMin\":" << g_State.battleStats.m_levelOnSixMin << ",";
+             ss << "\"m_LevelOnTwelveMin\":" << g_State.battleStats.m_LevelOnTwelveMin << ",";
+             ss << "\"m_KillNumCrossTower\":" << g_State.battleStats.m_KillNumCrossTower << ",";
+             ss << "\"m_RevengeKillNum\":" << g_State.battleStats.m_RevengeKillNum << ",";
+             ss << "\"m_ExtremeBackHomeNum\":" << g_State.battleStats.m_ExtremeBackHomeNum << ",";
+             ss << "\"bLockGuidChanged\":" << (g_State.battleStats.bLockGuidChanged ? "true" : "false") << ",";
+             ss << "\"m_BackHomeCount\":" << g_State.battleStats.m_BackHomeCount << ",";
+             ss << "\"m_RecoverSuccessfullyCount\":" << g_State.battleStats.m_RecoverSuccessfullyCount << ",";
+             ss << "\"m_BuyEquipCount\":" << g_State.battleStats.m_BuyEquipCount << ",";
+             ss << "\"m_BuyEquipTime\":" << g_State.battleStats.m_BuyEquipTime << ",";
+             ss << "\"m_uSurvivalCount\":" << g_State.battleStats.m_uSurvivalCount << ",";
+             ss << "\"m_uPlayerCount\":" << g_State.battleStats.m_uPlayerCount << ",";
+             ss << "\"m_iCampAKill\":" << g_State.battleStats.m_iCampAKill << ",";
+             ss << "\"m_iCampBKill\":" << g_State.battleStats.m_iCampBKill << ",";
+             ss << "\"m_CampAGold\":" << g_State.battleStats.m_CampAGold << ",";
+             ss << "\"m_CampBGold\":" << g_State.battleStats.m_CampBGold << ",";
+             ss << "\"m_CampAExp\":" << g_State.battleStats.m_CampAExp << ",";
+             ss << "\"m_CampBExp\":" << g_State.battleStats.m_CampBExp << ",";
+             ss << "\"m_CampAKillTower\":" << g_State.battleStats.m_CampAKillTower << ",";
+             ss << "\"m_CampBKillTower\":" << g_State.battleStats.m_CampBKillTower << ",";
+             ss << "\"m_CampAKillLingZhu\":" << g_State.battleStats.m_CampAKillLingZhu << ",";
+             ss << "\"m_CampBKillLingZhu\":" << g_State.battleStats.m_CampBKillLingZhu << ",";
+             ss << "\"m_CampAKillShenGui\":" << g_State.battleStats.m_CampAKillShenGui << ",";
+             ss << "\"m_CampBKillShenGui\":" << g_State.battleStats.m_CampBKillShenGui << ",";
+             ss << "\"m_CampAKillLingzhuOnSuperior\":" << g_State.battleStats.m_CampAKillLingzhuOnSuperior << ",";
+             ss << "\"m_CampBKillLingzhuOnSuperior\":" << g_State.battleStats.m_CampBKillLingzhuOnSuperior << ",";
+             ss << "\"m_CampASuperiorTime\":" << g_State.battleStats.m_CampASuperiorTime << ",";
+             ss << "\"m_CampBSuperiorTime\":" << g_State.battleStats.m_CampBSuperiorTime << ",";
+             ss << "\"m_iFirstBldTime\":" << g_State.battleStats.m_iFirstBldTime << ",";
+             ss << "\"m_iFirstBldKiller\":" << g_State.battleStats.m_iFirstBldKiller << ",";
+
+             // Also map legacy fields to keep structure valid but use new names under the hood
+             g_State.battleStats.campAScore = stats.m_iCampAKill;
+             g_State.battleStats.campBScore = stats.m_iCampBKill;
+             g_State.battleStats.campAGold = stats.m_CampAGold;
+             g_State.battleStats.campBGold = stats.m_CampBGold;
+             g_State.battleStats.campAKillTower = stats.m_CampAKillTower;
+             g_State.battleStats.campBKillTower = stats.m_CampBKillTower;
+             g_State.battleStats.campAKillLord = stats.m_CampAKillLingZhu;
+             g_State.battleStats.campBKillLord = stats.m_CampBKillLingZhu;
+             g_State.battleStats.campAKillTurtle = stats.m_CampAKillShenGui;
+             g_State.battleStats.campBKillTurtle = stats.m_CampBKillShenGui;
+
+             g_State.battlePlayers = localBattlePlayers;
+        }
+
         // --- 3. Ban Pick (/banpick) ---
         {
              std::lock_guard<std::mutex> lock(g_State.stateMutex);
@@ -1289,18 +1364,33 @@ void MonitorBattleState() {
     }
 }
 
-// Forward declaration
-void UpdateBattleStats(void* logicBattleManager);
-
 void InitGameLogic() {
-    // Resolve UIRankHero.OnUpdate offset dynamically
-    // 0xffffffff9bbe766c was in dump, but offsets change. Use dynamic resolution.
-    void* pUIRankHero_OnUpdate = Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE(""), OBFUSCATE("UIRankHero"), OBFUSCATE("OnUpdate"), 0);
+    // Attempt to hook multiple methods to find the UIRankHero instance
 
+    // 1. Try OnUpdate
+    void* pUIRankHero_OnUpdate = Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE(""), OBFUSCATE("UIRankHero"), OBFUSCATE("OnUpdate"), 0);
     if (pUIRankHero_OnUpdate) {
         DobbyHook(pUIRankHero_OnUpdate, (void*)new_UIRankHero_OnUpdate, (void**)&old_UIRankHero_OnUpdate);
         LOGI("Hooked UIRankHero.OnUpdate at %p", pUIRankHero_OnUpdate);
     } else {
         LOGI("Failed to find UIRankHero.OnUpdate");
+    }
+
+    // 2. Try Active (1 arg)
+    void* pUIRankHero_Active = Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE(""), OBFUSCATE("UIRankHero"), OBFUSCATE("Active"), 1);
+    if (pUIRankHero_Active) {
+        DobbyHook(pUIRankHero_Active, (void*)new_UIRankHero_Active, (void**)&old_UIRankHero_Active);
+        LOGI("Hooked UIRankHero.Active at %p", pUIRankHero_Active);
+    } else {
+        LOGI("Failed to find UIRankHero.Active");
+    }
+
+    // 3. Try InitView (0 args)
+    void* pUIRankHero_InitView = Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE(""), OBFUSCATE("UIRankHero"), OBFUSCATE("InitView"), 0);
+    if (pUIRankHero_InitView) {
+        DobbyHook(pUIRankHero_InitView, (void*)new_UIRankHero_InitView, (void**)&old_UIRankHero_InitView);
+        LOGI("Hooked UIRankHero.InitView at %p", pUIRankHero_InitView);
+    } else {
+        LOGI("Failed to find UIRankHero.InitView");
     }
 }
