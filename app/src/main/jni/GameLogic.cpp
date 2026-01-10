@@ -49,20 +49,31 @@ void* GetStaticInstance(const char* dll, const char* namespaze, const char* klas
 }
 
 // Helper to iterate List<T>
+// Menggunakan struct List template dari Il2Cpp.h
+// Tidak menggunakan offset 0x10/0x18 manual, melainkan akses field struct.
+// Ini lebih aman jika versi Unity menggunakan layout standar yang didefinisikan di Il2Cpp.h.
 template <typename T = void*>
 std::vector<T> IterateList(void* listPtr) {
     std::vector<T> result;
     if (!listPtr) return result;
 
-    // Cast to Il2Cpp List structure
+    // Casting ke struct List<T> yang didefinisikan di Il2Cpp.h
+    // Struct ini merefleksikan layout memori internal List C#
     List<T>* list = (List<T>*)listPtr;
+
+    // Validasi pointer items (Array)
     if (!list || !list->items) return result;
 
+    // Mengambil size dari field struct, bukan offset manual
     int size = list->getSize();
-    if (size > 100) size = 100; // Safety cap
+
+    // Safety cap untuk mencegah loop infinit jika memori korup
+    if (size > 100) size = 100;
 
     for (int i = 0; i < size; i++) {
-        // Access array items vector safely
+        // Akses array vector melalui struct Array
+        // Array->vector adalah array C murni dari T
+        // Il2Cpp.h mendefinisikan Array struct dengan header + vector[]
         if (i < list->items->max_length) {
             T item = list->items->vector[i];
             if (item) result.push_back(item);
@@ -72,6 +83,7 @@ std::vector<T> IterateList(void* listPtr) {
 }
 
 // Helper for Dictionary<uint, T> iteration
+// Sama seperti List, menggunakan struct Dictionari dari Il2Cpp.h
 template <typename TValue>
 std::vector<TValue> IterateDictionaryValues(void* dictPtr) {
     std::vector<TValue> result;
@@ -80,7 +92,7 @@ std::vector<TValue> IterateDictionaryValues(void* dictPtr) {
     Dictionari<uint32_t, TValue>* dict = (Dictionari<uint32_t, TValue>*)dictPtr;
     if (!dict || !dict->values) return result;
 
-    // Use values array directly (Structure of Arrays layout in Il2Cpp.h assumption)
+    // Menggunakan nilai count dari struct
     int count = dict->getSize();
     if (count > 100) count = 100;
 
@@ -95,11 +107,12 @@ std::vector<TValue> IterateDictionaryValues(void* dictPtr) {
 
 
 // Feature: InfoRoom
+// Mengambil data dari SystemData.m_quickMatchRoomPayerList
+// Menggunakan Il2CppGetStaticFieldValue untuk mendapatkan root pointer
 void UpdatePlayerInfo() {
-    // Refresh pointer every time or check null to handle game restarts
-    if (!g_SystemData_RoomData_List) {
-        Il2CppGetStaticFieldValue("Assembly-CSharp.dll", "", "SystemData", "m_quickMatchRoomPayerList", &g_SystemData_RoomData_List);
-    }
+    // Refresh pointer setiap update untuk menangani perubahan state game/re-login
+    // Menggunakan nama field string "m_quickMatchRoomPayerList" yang lebih stabil daripada offset
+    Il2CppGetStaticFieldValue("Assembly-CSharp.dll", "", "SystemData", "m_quickMatchRoomPayerList", &g_SystemData_RoomData_List);
 
     if (!g_SystemData_RoomData_List) return;
 
@@ -107,18 +120,25 @@ void UpdatePlayerInfo() {
     auto& room = g_State.roomState;
     room.players.clear();
 
+    // Menggunakan helper IterateList yang aman
     std::vector<void*> roomPlayers = IterateList<void*>(g_SystemData_RoomData_List);
 
     for (void* playerObj : roomPlayers) {
         if (!playerObj) continue;
 
-        PlayerData p = {}; // Zero init
+        PlayerData p = {}; // Zero initialization
+
+        // Membaca field menggunakan offset dari Dump (GameClass.h)
+        // Offset ini spesifik untuk versi game saat dump diambil.
+        // Penggunaan macro READ_FIELD memastikan pointer valid sebelum dereference.
 
         // --- Basic Fields ---
         p.ulUid = READ_FIELD(playerObj, SystemData_RoomData_lUid, uint64_t);
         p.iPos = READ_FIELD(playerObj, SystemData_RoomData_iPos, int);
         p.uiCampType = READ_FIELD(playerObj, SystemData_RoomData_iCamp, uint32_t);
 
+        // String dibaca menggunakan helper Il2CppStringToString
+        // Helper ini memanggil str->toString() yang menangani konversi UTF-16 ke std::string
         String* namePtr = READ_PTR(playerObj, SystemData_RoomData_sName);
         p.sName = Il2CppStringToString(namePtr);
 
@@ -227,6 +247,8 @@ void UpdatePlayerInfo() {
 }
 
 // Feature: BanPick
+// Menggunakan SystemData.m_quickMatchRoomPayerList sebagai sumber data
+// Menghindari Hook UIRankHero yang tidak stabil.
 void UpdateBanPickState() {
     if (!g_SystemData_RoomData_List) return;
 
@@ -245,23 +267,22 @@ void UpdateBanPickState() {
         void* playerObj = list->items->vector[i];
         if (!playerObj) continue;
 
+        // banHero field di RoomData (0xb0)
         uint32_t ban = READ_FIELD(playerObj, SystemData_RoomData_banHero, uint32_t);
         if (ban > 0) bp.banList.push_back(ban);
 
+        // Pick = heroid (0x4c)
         uint32_t pick = READ_FIELD(playerObj, SystemData_RoomData_heroid, uint32_t);
         if (pick > 0) bp.pickList.push_back(pick);
     }
 }
 
 // Feature: InfoBattle
+// Mengakses Singleton BattleData dan ShowFightDataTiny via Il2Cpp API
 void UpdateBattleStats() {
-    if (!g_BattleData_Instance) {
-         Il2CppGetStaticFieldValue("Assembly-CSharp.dll", "", "BattleData", "Instance", &g_BattleData_Instance);
-    }
-
-    if (!g_ShowFightDataTiny_Instance) {
-        Il2CppGetStaticFieldValue("Assembly-CSharp.dll", "", "ShowFightDataTiny", "Instance", &g_ShowFightDataTiny_Instance);
-    }
+    // Refresh singleton pointers
+    Il2CppGetStaticFieldValue("Assembly-CSharp.dll", "", "BattleData", "Instance", &g_BattleData_Instance);
+    Il2CppGetStaticFieldValue("Assembly-CSharp.dll", "", "ShowFightDataTiny", "Instance", &g_ShowFightDataTiny_Instance);
 
     std::lock_guard<std::mutex> lock(g_State.stateMutex);
     auto& stats = g_State.battleStats;
@@ -338,7 +359,6 @@ std::string SerializeState() {
         ss << "\"heroid\":" << p.heroid << ",";
         ss << "\"uiRankLevel\":" << p.uiRankLevel << ",";
 
-        // Include detailed fields
         ss << "\"bRobot\":" << (p.bRobot ? "true" : "false") << ",";
         ss << "\"country\":" << p.country << ",";
         ss << "\"iPos\":" << p.iPos << ",";
@@ -420,12 +440,13 @@ std::string SerializeState() {
 }
 
 // Satisfy linker error AND provide update loop on Main Thread
+// Dipanggil dari hack.cpp hook_eglSwapBuffers (Render Thread)
+// Memastikan pointer valid karena berada di thread yang sama dengan engine.
 void MonitorBattleState() {
-    // Called by hack.cpp eglSwapBuffers (Render Thread)
     static int frameCount = 0;
     frameCount++;
 
-    // Update every 30 frames (approx 0.5 - 1s) to balance freshness and perf
+    // Update setiap 30 frame (approx 0.5 - 1s)
     if (frameCount % 30 == 0) {
         UpdatePlayerInfo();
         UpdateBanPickState();
@@ -439,5 +460,7 @@ void MonitorBattleState() {
 // Initialization
 void InitGameLogic() {
     Il2CppAttach("libil2cpp.so");
+    // Tidak menjalankan thread terpisah. Logic dipanggil oleh MonitorBattleState di main thread.
+    // Menghindari race condition dan pointer yang belum siap.
     LOGI("GameLogic initialized. Waiting for eglSwapBuffers to trigger MonitorBattleState.");
 }
