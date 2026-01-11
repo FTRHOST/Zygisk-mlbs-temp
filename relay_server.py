@@ -16,7 +16,6 @@ latest_data = {
     "last_update": 0,
     "debug": {},
     "room_info": {},
-    "ban_pick": {},
     "battle_stats": {}
 }
 game_socket = None
@@ -77,9 +76,6 @@ def socket_listener():
                         if "room_info" in data_payload:
                             latest_data["room_info"] = data_payload["room_info"]
 
-                        if "ban_pick" in data_payload:
-                            latest_data["ban_pick"] = data_payload["ban_pick"]
-
                         if "battle_stats" in data_payload:
                             latest_data["battle_stats"] = data_payload["battle_stats"]
 
@@ -88,7 +84,7 @@ def socket_listener():
 
                     # Debug print di terminal HP/Termux
                     state = latest_data.get('debug', {}).get('game_state', 'N/A')
-                    print(f"\r[LIVE] State: {state} | Bytes: {len(line)} | BP: {len(latest_data.get('ban_pick', {}))}   ", end="")
+                    print(f"\r[LIVE] State: {state} | Bytes: {len(line)}   ", end="")
                 except json.JSONDecodeError:
                     print(f"\n[ERR] Bad JSON: {line[:50]}...")
                 except Exception as e:
@@ -118,10 +114,6 @@ def get_data():
 @app.route('/inforoom', methods=['GET'])
 def get_inforoom():
     return jsonify(latest_data.get("room_info", {}))
-
-@app.route('/banpick', methods=['GET'])
-def get_banpick():
-    return jsonify(latest_data.get("ban_pick", {}))
 
 @app.route('/infobattle', methods=['GET'])
 def get_infobattle():
@@ -164,7 +156,6 @@ def index():
         <p>Endpoints:</p>
         <ul>
             <li><a href="/inforoom" style="color: yellow;">/inforoom</a></li>
-            <li><a href="/banpick" style="color: yellow;">/banpick</a></li>
             <li><a href="/infobattle" style="color: yellow;">/infobattle</a></li>
             <li><a href="/timebattle" style="color: yellow;">/timebattle</a></li>
             <li><a href="/api/data" style="color: yellow;">/api/data (Full JSON)</a></li>
