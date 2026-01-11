@@ -8,70 +8,73 @@
 #include <mutex>
 #include <sstream>
 #include <map>
+#include <fstream>
+#include <sys/stat.h>
 
 #include "Include.h"
+#include "utils.h"
 #include "Il2Cpp/il2cpp_dump.h"
 #include "feature/GameClass.h"
 #include "feature/ToString.h"
 #include "feature/ToString2.h"
-#include "feature/BattleData.h" // Include this for ShowFightDataTiny_Layout
-#include "struct/LogicPlayer.h" // Include LogicPlayer offsets
+#include "feature/BattleData.h" 
+#include "struct/LogicPlayer.h" 
 #include "IpcServer.h"
 #include "obfuscate.h"
-#include "dobby.h" // For Hooking
+#include "dobby.h"
 
-// Define Global State
 GlobalState g_State;
-
-// Timer variables
 std::chrono::steady_clock::time_point g_battleStartTime;
 std::chrono::duration<float> g_elapsedBattleTime(0);
 std::atomic<bool> g_isBattleTimerRunning(false);
 
-// Cache pointers (Singletons) to avoid repeated lookups
 void* g_LogicBattleManager_Instance = nullptr;
 void* g_BattleData_Instance = nullptr;
-void* g_UIRankHero_Instance = nullptr; // For BanPick
 
 #define LOG_TAG "MLBS_CORE"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
-// Helper to safely read a field
+std::string SafeReadString(uintptr_t monoStringPtr) {
+    if (monoStringPtr == 0) return "";
+    int32_t length = 0;
+    if (!utils::read_address((void*)(monoStringPtr + 0x10), &length, sizeof(length))) return "";
+    if (length <= 0 || length > 1024) return "";
+    std::u16string u16;
+    u16.resize(length);
+    if (!utils::read_address((void*)(monoStringPtr + 0x14), &u16[0], length * sizeof(char16_t))) return "";
+    std::string utf8;
+    utf8.reserve(length);
+    for (char16_t c : u16) {
+        if (c < 0x80) utf8.push_back((char)c);
+        else utf8.push_back('?'); 
+    }
+    return utf8;
+}
+
 #define READ_FIELD(target, type, offset) \
-    if(offset > 0) target = *(type*)((uintptr_t)pawn + offset);
+    if(offset > 0) { \
+        utils::read_address((void*)((uintptr_t)pawn + offset), &target, sizeof(type)); \
+    }
 
 #define READ_STRING(target, offset) \
     if(offset > 0) { \
-        MonoString* str = *(MonoString**)((uintptr_t)pawn + offset); \
-        if(str) target = str->CString(); \
+        uintptr_t strPtr = 0; \
+        if (utils::read_address((void*)((uintptr_t)pawn + offset), &strPtr, sizeof(strPtr)) && strPtr != 0) { \
+            target = SafeReadString(strPtr); \
+        } \
     }
 
-// Helper to read simple Pointer/Address
 #define READ_PTR(target, offset) \
-    if(offset > 0) target = (uintptr_t)(*(void**)((uintptr_t)pawn + offset));
-
-// --- HOOKING UIRankHero ---
-void (*old_UIRankHero_OnUpdate)(void* instance);
-void new_UIRankHero_OnUpdate(void* instance) {
-    if (instance != nullptr) {
-        g_UIRankHero_Instance = instance;
+    if(offset > 0) { \
+        utils::read_address((void*)((uintptr_t)pawn + offset), &target, sizeof(uintptr_t)); \
     }
-    if (old_UIRankHero_OnUpdate) {
-        old_UIRankHero_OnUpdate(instance);
-    }
-}
 
-// --- Implementation of GetBattleStats ---
 BattleStats GetBattleStats() {
     BattleStats stats = {};
     void* showFightDataInstance = nullptr;
-
     Il2CppGetStaticFieldValue(OBFUSCATE("Assembly-CSharp.dll"), "", OBFUSCATE("ShowFightData"), OBFUSCATE("Instance"), &showFightDataInstance);
-
     if (showFightDataInstance) {
         auto* pData = static_cast<ShowFightDataTiny_Layout*>(showFightDataInstance);
-
-        // Read all fields mapped in ShowFightDataTiny_Layout
         stats.m_levelOnSixMin = pData->m_levelOnSixMin;
         stats.m_LevelOnTwelveMin = pData->m_LevelOnTwelveMin;
         stats.m_KillNumCrossTower = pData->m_KillNumCrossTower;
@@ -84,7 +87,6 @@ BattleStats GetBattleStats() {
         stats.m_BuyEquipTime = pData->m_BuyEquipTime;
         stats.m_uSurvivalCount = pData->m_uSurvivalCount;
         stats.m_uPlayerCount = pData->m_uPlayerCount;
-
         stats.m_iCampAKill = pData->m_iCampAKill;
         stats.m_iCampBKill = pData->m_iCampBKill;
         stats.m_CampAGold = pData->m_CampAGold;
@@ -104,78 +106,52 @@ BattleStats GetBattleStats() {
         stats.m_iFirstBldTime = pData->m_iFirstBldTime;
         stats.m_iFirstBldKiller = pData->m_iFirstBldKiller;
     }
-
     return stats;
 }
 
-// --- LOGIC IMPLEMENTATION ---
-
-void UpdateBanPickState() {
-    if (!g_UIRankHero_Instance) {
-        std::lock_guard<std::mutex> lock(g_State.stateMutex);
-        g_State.banPickState.isOpen = false;
+void LoadConfig() {
+    std::string path = "/storage/emulated/0/Android/data/com.mobile.legends/files/config.json";
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        std::ofstream outfile(path);
+        if (outfile.is_open()) {
+            outfile << "{\n  \"mod_enabled\": true\n}";
+            outfile.close();
+        }
+        g_State.isModEnabled = true;
         return;
     }
-
-    void* pawn = g_UIRankHero_Instance;
-
-    BanPickState bpState = {};
-    bpState.isOpen = true;
-
-    if (UIRankHero_banOrder > 0) {
-        void* banOrderList = *(void**)((uintptr_t)pawn + UIRankHero_banOrder);
-        if (banOrderList) {
-            auto* list = (monoList<uint32_t>*)banOrderList;
-            int size = list->getSize();
-            if (size > 20) size = 20;
-            for (int i = 0; i < size; i++) {
-                bpState.banOrder.push_back(list->getItems()[i]);
-            }
-        }
-    }
-
-    if (UIRankHero_pickOrder > 0) {
-        void* pickOrderList = *(void**)((uintptr_t)pawn + UIRankHero_pickOrder);
-        if (pickOrderList) {
-            auto* list = (monoList<uint32_t>*)pickOrderList;
-            int size = list->getSize();
-            if (size > 20) size = 20;
-            for (int i = 0; i < size; i++) {
-                bpState.pickOrder.push_back(list->getItems()[i]);
-            }
-        }
-    }
-
-    {
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    std::string content = buffer.str();
+    bool oldEnabled = g_State.isModEnabled;
+    g_State.isModEnabled = (content.find("\"mod_enabled\": false") == std::string::npos);
+    if (oldEnabled != g_State.isModEnabled) {
         std::lock_guard<std::mutex> lock(g_State.stateMutex);
-        g_State.banPickState = bpState;
+        g_State.players.clear();
+        g_State.logicPlayers.clear();
+        g_State.battlePlayers.clear();
     }
 }
 
 void UpdateLogicPlayerStats(void* logicBattleManager) {
     if (!logicBattleManager) return;
-
+    {
+        std::lock_guard<std::mutex> lock(g_State.stateMutex);
+        if (g_State.battleState < 3) return;
+    }
     std::vector<LogicPlayerStats> localLogicPlayers;
-
-    // Helper lambda to process a list of LogicFighters (assumed to be LogicPlayers)
     auto processList = [&](uintptr_t listOffset) {
         if (listOffset == 0) return;
-        void* listPtr = *(void**)((uintptr_t)logicBattleManager + listOffset);
-        if (!listPtr) return;
-
+        void* listPtr = nullptr;
+        if (!utils::read_address((void*)((uintptr_t)logicBattleManager + listOffset), &listPtr, sizeof(listPtr)) || !listPtr) return;
         auto* list = (monoList<void*>*)listPtr;
         int size = list->getSize();
-
+        if (size < 0 || size > 20) return; 
         for (int i = 0; i < size; i++) {
             void* pawn = list->getItems()[i];
             if (!pawn) continue;
-
             LogicPlayerStats s = {};
-
-            // Use READ_FIELD macro or similar logic manually since READ_FIELD expects 'pawn' var
-            // and we have 'pawn' here.
-
-            // Pointers
             READ_PTR(s.m_LoigcBezierBullet_Ptr, LogicPlayer_m_LoigcBezierBullet);
             READ_PTR(s.moveControllers_Ptr, LogicPlayer_moveControllers);
             READ_PTR(s.m_copyHurtCount_Ptr, LogicPlayer_m_copyHurtCount);
@@ -238,43 +214,7 @@ void UpdateLogicPlayerStats(void* logicBattleManager) {
             READ_PTR(s.lastFailedAutoAiSpellCast_Ptr, LogicPlayer_lastFailedAutoAiSpellCast);
             READ_PTR(s.ownNormalSkillCache_Ptr, LogicPlayer_ownNormalSkillCache);
             READ_PTR(s.lEatFruits_Ptr, LogicPlayer_lEatFruits);
-
-            // Read EntityBase m_ID (GameObjectID)
             READ_FIELD(s.m_ID, int32_t, LogicPlayer_m_ID);
-
-            // Player Info from m_PlayerData (First Attempt)
-            if (s.m_PlayerData_Ptr) {
-                // Manually read from m_PlayerData_Ptr using offsets
-                s.heroId = *(uint32_t*)(s.m_PlayerData_Ptr + SystemData_RoomData_heroid);
-
-                MonoString* nameStr = *(MonoString**)(s.m_PlayerData_Ptr + SystemData_RoomData__sName);
-                if (nameStr) {
-                    s.playerName = nameStr->CString();
-                }
-            }
-
-            // Fallback: If playerName is empty, try to match m_ID with g_State.battlePlayers
-            if (s.playerName.empty()) {
-                std::lock_guard<std::mutex> lock(g_State.stateMutex);
-                for (const auto& bp : g_State.battlePlayers) {
-                    if ((uint32_t)s.m_ID == (uint32_t)bp.uGuid) {
-                        s.playerName = bp.playerName;
-
-                        // Also try to find heroId from RoomData if not set
-                        if (s.heroId == 0) {
-                            for (const auto& rp : g_State.players) {
-                                if (rp._sName == s.playerName) {
-                                    s.heroId = rp.heroid;
-                                    break;
-                                }
-                            }
-                        }
-                        break;
-                    }
-                }
-            }
-
-            // Simple Values
             READ_FIELD(s.totalGold, int32_t, LogicPlayer_totalGold);
             READ_FIELD(s.m_HurtTotalValue, double, LogicPlayer_m_HurtTotalValue);
             READ_FIELD(s.m_HurtHeroValue, double, LogicPlayer_m_HurtHeroValue);
@@ -483,73 +423,51 @@ void UpdateLogicPlayerStats(void* logicBattleManager) {
             READ_FIELD(s.iPreGetResultTime, uint32_t, LogicPlayer_iPreGetResultTime);
             READ_FIELD(s.iCurKilledResult, int32_t, LogicPlayer_iCurKilledResult);
             READ_FIELD(s.iPreKilledResultTime, uint32_t, LogicPlayer_iPreKilledResultTime);
-
             localLogicPlayers.push_back(s);
         }
     };
-
-    // Process CampA and CampB players
-    // m_CampAPlayerList is at 0x100, m_CampBPlayerList is at 0x108
     processList(0x100);
     processList(0x108);
-
-    {
-        std::lock_guard<std::mutex> lock(g_State.stateMutex);
-        g_State.logicPlayers = localLogicPlayers;
-    }
+    { std::lock_guard<std::mutex> lock(g_State.stateMutex); g_State.logicPlayers = localLogicPlayers; }
 }
 
 void UpdateBattleStats(void* logicBattleManager) {
-    // 1. Get Game Time
     float time = 0.0f;
     if (BattleStaticInit_GetTime) {
          float (*GetTimeFunc)() = (float (*)())BattleStaticInit_GetTime;
          time = GetTimeFunc();
     }
-
-    // 2. Get Team Stats (Using the expanded struct)
     BattleStats stats = GetBattleStats();
-
-    // 3. Get Individual Player Stats from BattleData.heroInfoList
     std::vector<PlayerBattleData> localBattlePlayers;
     void* battleDataInstance = nullptr;
     Il2CppGetStaticFieldValue(OBFUSCATE("Assembly-CSharp.dll"), "", OBFUSCATE("BattleData"), OBFUSCATE("Instance"), &battleDataInstance);
-
     if (battleDataInstance && BattleData_heroInfoList > 0) {
-        void* dictPtr = *(void**)((uintptr_t)battleDataInstance + BattleData_heroInfoList);
-        if (dictPtr) {
-            // Dictionary<uint32_t, FightHeroInfo>
+        void* dictPtr = nullptr;
+        if (utils::read_address((void*)((uintptr_t)battleDataInstance + BattleData_heroInfoList), &dictPtr, sizeof(dictPtr)) && dictPtr) {
             auto* dictionary = (Dictionary<uint32_t, void*>*)dictPtr;
-
-            if (dictionary->entries && dictionary->count > 0) {
+            if (dictionary->entries && dictionary->count > 0 && dictionary->count < 50) {
                 auto entries = dictionary->entries->toCPPlist();
                 for (auto& entry : entries) {
                     void* fightHeroInfo = entry.value;
                     if (!fightHeroInfo) continue;
-
                     PlayerBattleData pb = {};
-                    void* pawn = fightHeroInfo; // Alias for READ_FIELD macro
-
+                    void* pawn = fightHeroInfo; 
                     READ_FIELD(pb.uGuid, uint32_t, FightHeroInfo_m_uGuid);
-                    READ_STRING(pb.playerName, FightHeroInfo_m_PlayerName); // Uses original function name retrieval
+                    READ_STRING(pb.playerName, FightHeroInfo_m_PlayerName);
                     READ_FIELD(pb.campType, int32_t, FightHeroInfo_m_CampType);
                     READ_FIELD(pb.kill, uint32_t, FightHeroInfo_m_KillNum);
                     READ_FIELD(pb.death, uint32_t, FightHeroInfo_m_DeadNum);
                     READ_FIELD(pb.assist, uint32_t, FightHeroInfo_m_AssistNum);
                     READ_FIELD(pb.gold, uint32_t, FightHeroInfo_m_Gold);
                     READ_FIELD(pb.totalGold, uint32_t, FightHeroInfo_m_TotalGold);
-
                     localBattlePlayers.push_back(pb);
                 }
             }
         }
     }
-
     {
         std::lock_guard<std::mutex> lock(g_State.stateMutex);
         g_State.battleStats.gameTime = time;
-
-        // Copy all raw fields to Global State
         g_State.battleStats.m_levelOnSixMin = stats.m_levelOnSixMin;
         g_State.battleStats.m_LevelOnTwelveMin = stats.m_LevelOnTwelveMin;
         g_State.battleStats.m_KillNumCrossTower = stats.m_KillNumCrossTower;
@@ -562,7 +480,6 @@ void UpdateBattleStats(void* logicBattleManager) {
         g_State.battleStats.m_BuyEquipTime = stats.m_BuyEquipTime;
         g_State.battleStats.m_uSurvivalCount = stats.m_uSurvivalCount;
         g_State.battleStats.m_uPlayerCount = stats.m_uPlayerCount;
-
         g_State.battleStats.m_iCampAKill = stats.m_iCampAKill;
         g_State.battleStats.m_iCampBKill = stats.m_iCampBKill;
         g_State.battleStats.m_CampAGold = stats.m_CampAGold;
@@ -581,23 +498,8 @@ void UpdateBattleStats(void* logicBattleManager) {
         g_State.battleStats.m_CampBSuperiorTime = stats.m_CampBSuperiorTime;
         g_State.battleStats.m_iFirstBldTime = stats.m_iFirstBldTime;
         g_State.battleStats.m_iFirstBldKiller = stats.m_iFirstBldKiller;
-
-        // Also map legacy fields to keep structure valid but use new names under the hood
-        g_State.battleStats.campAScore = stats.m_iCampAKill;
-        g_State.battleStats.campBScore = stats.m_iCampBKill;
-        g_State.battleStats.campAGold = stats.m_CampAGold;
-        g_State.battleStats.campBGold = stats.m_CampBGold;
-        g_State.battleStats.campAKillTower = stats.m_CampAKillTower;
-        g_State.battleStats.campBKillTower = stats.m_CampBKillTower;
-        g_State.battleStats.campAKillLord = stats.m_CampAKillLingZhu;
-        g_State.battleStats.campBKillLord = stats.m_CampBKillLingZhu;
-        g_State.battleStats.campAKillTurtle = stats.m_CampAKillShenGui;
-        g_State.battleStats.campBKillTurtle = stats.m_CampBKillShenGui;
-
         g_State.battlePlayers = localBattlePlayers;
     }
-
-    // Update Logic Players (New Feature)
     UpdateLogicPlayerStats(logicBattleManager);
 }
 
@@ -608,17 +510,12 @@ void UpdatePlayerInfo() {
         if (!g_State.players.empty()) g_State.players.clear();
         return;
     }
-    
     std::lock_guard<std::mutex> lock(g_State.stateMutex);
     g_State.players.clear();
-
     for (int i = 0; i < battlePlayerList->getSize(); i++) {
         void *pawn = battlePlayerList->getItems()[i];
         if (!pawn) continue;
-
         PlayerData p = {};
-        
-        // --- KEY IDENTIFIERS ---
         READ_FIELD(p.lUid, uint64_t, SystemData_RoomData_lUid);
         READ_FIELD(p.bUid, uint64_t, SystemData_RoomData_bUid);
         READ_FIELD(p.iCamp, uint32_t, SystemData_RoomData_iCamp);
@@ -636,8 +533,6 @@ void UpdatePlayerInfo() {
         READ_FIELD(p.bRobot, bool, SystemData_RoomData_bRobot);
         READ_FIELD(p.bNewPlayer, bool, SystemData_RoomData_bNewPlayer);
         READ_FIELD(p.uiHeroIDChoose, uint32_t, SystemData_RoomData_uiHeroIDChoose);
-
-        // --- MASSIVE RAW FIELD DUMP ---
         READ_FIELD(p.bAutoConditionNew, bool, SystemData_RoomData_bAutoConditionNew);
         READ_FIELD(p.bShowSeasonAchieve, bool, SystemData_RoomData_bShowSeasonAchieve);
         READ_FIELD(p.iStyleBoardId, uint32_t, SystemData_RoomData_iStyleBoardId);
@@ -668,6 +563,7 @@ void UpdatePlayerInfo() {
         READ_FIELD(p.bRankReview, bool, SystemData_RoomData_bRankReview);
         READ_FIELD(p.iElo, uint32_t, SystemData_RoomData_iElo);
         READ_FIELD(p.uiRoleLevel, uint32_t, SystemData_RoomData_uiRoleLevel);
+        READ_FIELD(p.bNewPlayer, bool, SystemData_RoomData_bNewPlayer);
         READ_FIELD(p.iRoad, uint32_t, SystemData_RoomData_iRoad);
         READ_FIELD(p.uiSkinSource, uint32_t, SystemData_RoomData_uiSkinSource);
         READ_FIELD(p.iFighterType, uint32_t, SystemData_RoomData_iFighterType);
@@ -706,8 +602,6 @@ void UpdatePlayerInfo() {
         READ_FIELD(p.bBanChat, bool, SystemData_RoomData_bBanChat);
         READ_FIELD(p.iChatBanFinishTime, uint32_t, SystemData_RoomData_iChatBanFinishTime);
         READ_FIELD(p.iChatBanBattleNum, uint32_t, SystemData_RoomData_iChatBanBattleNum);
-        
-        // Pointers/Complex Types (Just grabbing address for 'raw' info as requested)
         READ_PTR(p.mapTalentTree_Ptr, SystemData_RoomData_mapTalentTree);
         READ_PTR(p.mRuneSkill2023_Ptr, SystemData_RoomData_mRuneSkill2023);
         READ_PTR(p.skinlist_Ptr, SystemData_RoomData_skinlist);
@@ -723,9 +617,51 @@ void UpdatePlayerInfo() {
         READ_PTR(p.mapBattleAttr_Ptr, SystemData_RoomData_mapBattleAttr);
         READ_PTR(p.vFastChat_Ptr, SystemData_RoomData_vFastChat);
         READ_PTR(p.vWantSelectHero_Ptr, SystemData_RoomData_vWantSelectHero);
-
-        // Legacy/Computed
-        p.name = p._sName; // Ensure _sName is used
+        READ_FIELD(p.bForbidUseFaceName, bool, SystemData_RoomData_bForbidUseFaceName);
+        READ_STRING(p.sClientIp, SystemData_RoomData_sClientIp);
+        READ_FIELD(p.iRoomOrder, uint32_t, SystemData_RoomData_iRoomOrder);
+        READ_PTR(p.vRougeTotalSkill_Ptr, SystemData_RoomData_vRougeTotalSkill);
+        READ_PTR(p.vRougeOMGSkill_Ptr, SystemData_RoomData_vRougeOMGSkill);
+        READ_PTR(p.vRecommendEquipList_Ptr, SystemData_RoomData_vRecommendEquipList);
+        READ_STRING(p.sRecommendEquipVersion, SystemData_RoomData_sRecommendEquipVersion);
+        READ_PTR(p.vPingParamDetail_Ptr, SystemData_RoomData_vPingParamDetail);
+        READ_FIELD(p.uiPlayerPing, uint32_t, SystemData_RoomData_uiPlayerPing);
+        READ_FIELD(p.mSkinRankSeasonTag_Ptr, uint32_t, SystemData_RoomData_mSkinRankSeasonTag);
+        READ_FIELD(p.mSkinNumTag_Ptr, uint32_t, SystemData_RoomData_mSkinNumTag);
+        READ_FIELD(p.bFullSkillaber, bool, SystemData_RoomData_bFullSkillaber);
+        READ_FIELD(p.uiCommanderSkinAttackEffect, uint32_t, SystemData_RoomData_uiCommanderSkinAttackEffect);
+        READ_FIELD(p.uiDailyFreeRandomNum, uint32_t, SystemData_RoomData_uiDailyFreeRandomNum);
+        READ_FIELD(p.bIllustrateCornerEffectClose, bool, SystemData_RoomData_bIllustrateCornerEffectClose);
+        READ_FIELD(p.bTagedBackOf2022, bool, SystemData_RoomData_bTagedBackOf2022);
+        READ_FIELD(p.iTapConflictTipNum, uint32_t, SystemData_RoomData_iTapConflictTipNum);
+        READ_FIELD(p.iNameShowType, uint32_t, SystemData_RoomData_iNameShowType);
+        READ_FIELD(p.bOpenHighLight, bool, SystemData_RoomData_bOpenHighLight);
+        READ_FIELD(p.mMCBanPickCommander_Ptr, uint32_t, SystemData_RoomData_mMCBanPickCommander);
+        READ_PTR(p.vForbidBanCommander_Ptr, SystemData_RoomData_vForbidBanCommander);
+        READ_FIELD(p.iTeamLevel, uint32_t, SystemData_RoomData_iTeamLevel);
+        READ_PTR(p.vAdditionalHero_Ptr, SystemData_RoomData_vAdditionalHero);
+        READ_FIELD(p.uiDisorderPublicHeroScore, uint32_t, SystemData_RoomData_uiDisorderPublicHeroScore);
+        READ_FIELD(p.bPlayerBirthdayToday, bool, SystemData_RoomData_bPlayerBirthdayToday);
+        READ_FIELD(p.iTeamHeadId, uint32_t, SystemData_RoomData_iTeamHeadId);
+        READ_PTR(p.mapHeroBattleNum_Ptr, SystemData_RoomData_mapHeroBattleNum);
+        READ_PTR(p.vCurSeasonRealRoadInfo_Ptr, SystemData_RoomData_vCurSeasonRealRoadInfo);
+        READ_PTR(p.vCultivateRoadShow_Ptr, SystemData_RoomData_vCultivateRoadShow);
+        READ_FIELD(p.uiCommanderLevel, uint32_t, SystemData_RoomData_uiCommanderLevel);
+        READ_FIELD(p.bOpenSubRankID, bool, SystemData_RoomData_bOpenSubRankID);
+        READ_FIELD(p.iSubRankID, uint32_t, SystemData_RoomData_iSubRankID);
+        READ_FIELD(p.iSingleLv, uint32_t, SystemData_RoomData_iSingleLv);
+        READ_FIELD(p.stArenaMatchBattleInfo_Ptr, uint32_t, SystemData_RoomData_stArenaMatchBattleInfo);
+        READ_FIELD(p.stArenaMatchShowInfo_Ptr, uint32_t, SystemData_RoomData_stArenaMatchShowInfo);
+        READ_FIELD(p.stSkinAttach_Ptr, uint32_t, SystemData_RoomData_stSkinAttach);
+        READ_FIELD(p.iMatchTeamId, uint64_t, SystemData_RoomData_iMatchTeamId);
+        READ_FIELD(p.iFlowBackTYpe, uint32_t, SystemData_RoomData_iFlowBackTYpe);
+        READ_FIELD(p.bRoadAdditionCover, bool, SystemData_RoomData_bRoadAdditionCover);
+        READ_FIELD(p.iRoadAdditionCoverTimes, uint32_t, SystemData_RoomData_iRoadAdditionCoverTimes);
+        READ_FIELD(p.iRoomPos, uint32_t, SystemData_RoomData_iRoomPos);
+        READ_FIELD(p.stEasterEggInfo_Ptr, uint32_t, SystemData_RoomData_stEasterEggInfo);
+        READ_STRING(p.sMatchTeamName, SystemData_RoomData_sMatchTeamName);
+        READ_FIELD(p.iMatchTeamFaceId, uint32_t, SystemData_RoomData_iMatchTeamFaceId);
+        p.name = p._sName; 
         p.uid = std::to_string(p.lUid) + "(" + std::to_string(p.uiZoneId) + ")";
         p.rank = RankToString(p.uiRankLevel, p.iMythPoint);
         p.spell = SpellToString(p.summonSkillId);
@@ -734,546 +670,86 @@ void UpdatePlayerInfo() {
         p.heroId = p.heroid;
         p.spellId = p.summonSkillId;
         p.rankLevel = p.uiRankLevel;
-
         g_State.players.push_back(p);
     }
 }
 
 void MonitorBattleState() {
+    static int configTick = 0;
+    if (++configTick >= 180) { LoadConfig(); configTick = 0; }
+    if (!g_State.isModEnabled) {
+        std::lock_guard<std::mutex> lock(g_State.stateMutex);
+        g_State.players.clear(); g_State.logicPlayers.clear(); return;
+    }
+    static int logicTick = 0, infoTick = 0;
+    logicTick++; infoTick++;
     void *logicBattleManager = nullptr;
     Il2CppGetStaticFieldValue(OBFUSCATE("Assembly-CSharp.dll"), "", OBFUSCATE("LogicBattleManager"), OBFUSCATE("Instance"), &logicBattleManager);
-
     bool isManagerValid = (logicBattleManager != nullptr);
     int currentBattleState = -1;
-
     if (isManagerValid) {
         currentBattleState = GetBattleState(logicBattleManager);
-
-        {
-            std::lock_guard<std::mutex> lock(g_State.stateMutex);
-            if (currentBattleState != g_State.battleState) {
-                g_State.battleState = currentBattleState;
-            }
+        { std::lock_guard<std::mutex> lock(g_State.stateMutex); g_State.battleState = currentBattleState; }
+        
+        if (currentBattleState == 6 && !g_isBattleTimerRunning) {
+             g_battleStartTime = std::chrono::steady_clock::now();
+             g_isBattleTimerRunning = true;
+        } else if (currentBattleState == 7 && g_isBattleTimerRunning) {
+             g_isBattleTimerRunning = false;
+        }
+        if (g_isBattleTimerRunning) {
+             g_elapsedBattleTime = std::chrono::steady_clock::now() - g_battleStartTime;
         }
 
-        // Logic for specific states
-        if (currentBattleState == 2) { // Draft/BanPick
-             UpdateBanPickState();
-             UpdatePlayerInfo(); // Player info is valid in Draft
-        }
-        else if (currentBattleState >= 3) { // In-Game (3, 6, 7 etc)
-             UpdateBattleStats(logicBattleManager); // Update Score, Gold, Time, LogicPlayer
-             UpdatePlayerInfo();  // Player info (static part)
+        if (currentBattleState == 2 && infoTick >= 60) { UpdatePlayerInfo(); infoTick = 0; }
+        else if (currentBattleState >= 3) {
+             if (logicTick >= 15) { UpdateBattleStats(logicBattleManager); logicTick = 0; }
+             if (infoTick >= 60) { UpdatePlayerInfo(); infoTick = 0; }
         }
     }
-    
-    // --- BROADCAST HEARTBEAT & DEBUG (Setiap ~60 Frame / 1 Detik) ---
     static int frameTick = 0;
-    frameTick++;
-
-    if (frameTick % 60 == 0) {
+    if (++frameTick % 60 == 0) {
         std::stringstream ss;
-        ss << "{";
-        ss << "\"type\":\"heartbeat\",";
-
-        // Debug Section
-        ss << "\"debug\":{";
-        ss << "\"manager_found\":" << (isManagerValid ? "true" : "false") << ",";
-        ss << "\"game_state\":" << currentBattleState << ",";
-        ss << "\"feature_enabled\":" << (g_State.roomInfoEnabled ? "true" : "false");
-        ss << "},";
-
-        // Data Section
-        ss << "\"data\":{";
-
-        // --- 1. Room Info (/inforoom) ---
+        ss << "{\"type\":\"heartbeat\",\"debug\":{\"manager_found\":" << (isManagerValid?"true":"false") << ",\"game_state\":" << currentBattleState << ",\"feature_enabled\":true},\"data\":{";
         {
              std::lock_guard<std::mutex> lock(g_State.stateMutex);
-             ss << "\"room_info\":{";
-             ss << "\"player_count\":" << g_State.players.size() << ",";
-             ss << "\"players\":[";
+             ss << "\"room_info\":{\"player_count\":" << g_State.players.size() << ",\"players\":[";
              for (size_t i = 0; i < g_State.players.size(); ++i) {
                  const auto& p = g_State.players[i];
-                 ss << "{";
-                 // Key Data
-                 ss << "\"lUid\":" << p.lUid << ",";
-                 ss << "\"_sName\":\"" << p._sName << "\",";
-                 ss << "\"iCamp\":" << p.iCamp << ",";
-                 ss << "\"heroid\":" << p.heroid << ",";
-
-                 // Expanded Raw Data
-                 ss << "\"bAutoConditionNew\":" << p.bAutoConditionNew << ",";
-                 ss << "\"bShowSeasonAchieve\":" << p.bShowSeasonAchieve << ",";
-                 ss << "\"iStyleBoardId\":" << p.iStyleBoardId << ",";
-                 ss << "\"iMatchEffectId\":" << p.iMatchEffectId << ",";
-                 ss << "\"iDayBreakNo1Count\":" << p.iDayBreakNo1Count << ",";
-                 ss << "\"bAutoReadySelect\":" << p.bAutoReadySelect << ",";
-                 ss << "\"bRobot\":" << p.bRobot << ",";
-                 ss << "\"headID\":" << p.headID << ",";
-                 ss << "\"uiSex\":" << p.uiSex << ",";
-                 ss << "\"country\":" << p.country << ",";
-                 ss << "\"uiZoneId\":" << p.uiZoneId << ",";
-                 ss << "\"summonSkillId\":" << p.summonSkillId << ",";
-                 ss << "\"runeId\":" << p.runeId << ",";
-                 ss << "\"runeLv\":" << p.runeLv << ",";
-                 ss << "\"facePath\":\"" << p.facePath << "\",";
-                 ss << "\"faceBorder\":" << p.faceBorder << ",";
-                 ss << "\"bStarVip\":" << p.bStarVip << ",";
-                 ss << "\"bMCStarVip\":" << p.bMCStarVip << ",";
-                 ss << "\"bMCStarVipPlus\":" << p.bMCStarVipPlus << ",";
-                 ss << "\"ulRoomID\":" << p.ulRoomID << ",";
-                 ss << "\"iConBlackRoomId\":" << p.iConBlackRoomId << ",";
-                 ss << "\"banHero\":" << p.banHero << ",";
-                 ss << "\"uiBattlePlayerType\":" << p.uiBattlePlayerType << ",";
-                 ss << "\"sThisLoginCountry\":\"" << p.sThisLoginCountry << "\",";
-                 ss << "\"sCreateRoleCountry\":\"" << p.sCreateRoleCountry << "\",";
-                 ss << "\"uiLanguage\":" << p.uiLanguage << ",";
-                 ss << "\"bIsOpenLive\":" << p.bIsOpenLive << ",";
-                 ss << "\"iTeamId\":" << p.iTeamId << ",";
-                 ss << "\"iTeamNationId\":" << p.iTeamNationId << ",";
-                 ss << "\"_steamName\":\"" << p._steamName << "\",";
-                 ss << "\"_steamSimpleName\":\"" << p._steamSimpleName << "\",";
-                 ss << "\"iCertify\":" << p.iCertify << ",";
-                 ss << "\"uiRankLevel\":" << p.uiRankLevel << ",";
-                 ss << "\"uiPVPRank\":" << p.uiPVPRank << ",";
-                 ss << "\"bRankReview\":" << p.bRankReview << ",";
-                 ss << "\"iElo\":" << p.iElo << ",";
-                 ss << "\"uiRoleLevel\":" << p.uiRoleLevel << ",";
-                 ss << "\"bNewPlayer\":" << p.bNewPlayer << ",";
-                 ss << "\"iRoad\":" << p.iRoad << ",";
-                 ss << "\"uiSkinSource\":" << p.uiSkinSource << ",";
-                 ss << "\"iFighterType\":" << p.iFighterType << ",";
-                 ss << "\"iWorldCupSupportCountry\":" << p.iWorldCupSupportCountry << ",";
-                 ss << "\"iHeroLevel\":" << p.iHeroLevel << ",";
-                 ss << "\"iHeroSubLevel\":" << p.iHeroSubLevel << ",";
-                 ss << "\"iHeroPowerLevel\":" << p.iHeroPowerLevel << ",";
-                 ss << "\"iActCamp\":" << p.iActCamp << ",";
-                 ss << "\"mHeroMission\":" << p.mHeroMission << ",";
-                 ss << "\"mSkinPaint\":" << p.mSkinPaint << ",";
-                 ss << "\"sClientVersion\":\"" << p.sClientVersion << "\",";
-                 ss << "\"uiHolyStatue\":" << p.uiHolyStatue << ",";
-                 ss << "\"uiKamon\":" << p.uiKamon << ",";
-                 ss << "\"uiUserMapID\":" << p.uiUserMapID << ",";
-                 ss << "\"iSurviveRank\":" << p.iSurviveRank << ",";
-                 ss << "\"iDefenceRankID\":" << p.iDefenceRankID << ",";
-                 ss << "\"iLeagueWCNum\":" << p.iLeagueWCNum << ",";
-                 ss << "\"iLeagueFCNum\":" << p.iLeagueFCNum << ",";
-                 ss << "\"iMPLCertifyTime\":" << p.iMPLCertifyTime << ",";
-                 ss << "\"iMPLCertifyID\":" << p.iMPLCertifyID << ",";
-                 ss << "\"iHeroUseCount\":" << p.iHeroUseCount << ",";
-                 ss << "\"iMythPoint\":" << p.iMythPoint << ",";
-                 ss << "\"bMythEvaled\":" << p.bMythEvaled << ",";
-                 ss << "\"iDefenceFlag\":" << p.iDefenceFlag << ",";
-                 ss << "\"iDefenPoint\":" << p.iDefenPoint << ",";
-                 ss << "\"iDefenceMap\":" << p.iDefenceMap << ",";
-                 ss << "\"iAIType\":" << p.iAIType << ",";
-                 ss << "\"iAISeed\":" << p.iAISeed << ",";
-                 ss << "\"sAiName\":\"" << p.sAiName << "\",";
-                 ss << "\"iWarmValue\":" << p.iWarmValue << ",";
-                 ss << "\"uiAircraftIDChooose\":" << p.uiAircraftIDChooose << ",";
-                 ss << "\"uiHeroIDChoose\":" << p.uiHeroIDChoose << ",";
-                 ss << "\"uiHeroSkinIDChoose\":" << p.uiHeroSkinIDChoose << ",";
-                 ss << "\"uiMapIDChoose\":" << p.uiMapIDChoose << ",";
-                 ss << "\"uiMapSkinIDChoose\":" << p.uiMapSkinIDChoose << ",";
-                 ss << "\"uiDefenceRankScore\":" << p.uiDefenceRankScore << ",";
-                 ss << "\"bBanChat\":" << p.bBanChat << ",";
-                 ss << "\"iChatBanFinishTime\":" << p.iChatBanFinishTime << ",";
-                 ss << "\"iChatBanBattleNum\":" << p.iChatBanBattleNum;
-
-                 ss << "}";
+                 ss << "{\"lUid\":" << p.lUid << ",\"_sName\":\"" << p._sName << "\",\"iCamp\":" << p.iCamp << ",\"heroid\":" << p.heroid << ",\"uiRankLevel\":" << p.uiRankLevel << ",\"summonSkillId\":" << p.summonSkillId 
+                    << ",\"banHero\":" << p.banHero << ",\"iRoad\":" << p.iRoad << ",\"uiZoneId\":" << p.uiZoneId << ",\"heroskin\":" << p.heroskin << "}";
                  if (i < g_State.players.size() - 1) ss << ",";
              }
-             ss << "]";
-
-             // --- LOGIC PLAYER STATS (NEW) ---
-             ss << ",\"logic_players\":[";
+             ss << "],\"logic_players\":[";
              for (size_t i = 0; i < g_State.logicPlayers.size(); ++i) {
                  const auto& s = g_State.logicPlayers[i];
-                 ss << "{";
-
-                 // Pointers (as hex strings or raw ints)
-                 ss << "\"m_LoigcBezierBullet_Ptr\":" << s.m_LoigcBezierBullet_Ptr << ",";
-                 ss << "\"moveControllers_Ptr\":" << s.moveControllers_Ptr << ",";
-                 ss << "\"m_copyHurtCount_Ptr\":" << s.m_copyHurtCount_Ptr << ",";
-                 ss << "\"m_dictFirstHitHeroTime_Ptr\":" << s.m_dictFirstHitHeroTime_Ptr << ",";
-                 ss << "\"m_listTimeSpent4Kill_Ptr\":" << s.m_listTimeSpent4Kill_Ptr << ",";
-                 ss << "\"m_arrSavedPositions_Ptr\":" << s.m_arrSavedPositions_Ptr << ",";
-                 ss << "\"hurtInfos_Ptr\":" << s.hurtInfos_Ptr << ",";
-                 ss << "\"enemySightLoss_Ptr\":" << s.enemySightLoss_Ptr << ",";
-                 ss << "\"endedSightValue_Ptr\":" << s.endedSightValue_Ptr << ",";
-                 ss << "\"ongoingSightValue_Ptr\":" << s.ongoingSightValue_Ptr << ",";
-                 ss << "\"multiKillAssistIDs_Ptr\":" << s.multiKillAssistIDs_Ptr << ",";
-                 ss << "\"m_LogicGuLianBulletManger_Ptr\":" << s.m_LogicGuLianBulletManger_Ptr << ",";
-                 ss << "\"m_magicTranSpellSideEffect_Ptr\":" << s.m_magicTranSpellSideEffect_Ptr << ",";
-                 ss << "\"m_magicTranSpellStageEffect_Ptr\":" << s.m_magicTranSpellStageEffect_Ptr << ",";
-                 ss << "\"m_TwinPlayer_Ptr\":" << s.m_TwinPlayer_Ptr << ",";
-                 ss << "\"m_summonTwinAI_Ptr\":" << s.m_summonTwinAI_Ptr << ",";
-                 ss << "\"m_AFKTurnAIComponent_Ptr\":" << s.m_AFKTurnAIComponent_Ptr << ",";
-                 ss << "\"m_uiAFKHoldCDRangeTimes_Ptr\":" << s.m_uiAFKHoldCDRangeTimes_Ptr << ",";
-                 ss << "\"m_SynFightData_Ptr\":" << s.m_SynFightData_Ptr << ",";
-                 ss << "\"dicIgnoreOpered_Ptr\":" << s.dicIgnoreOpered_Ptr << ",";
-                 ss << "\"m_RelativeScore_Ptr\":" << s.m_RelativeScore_Ptr << ",";
-                 ss << "\"dicTalentSkill_Ptr\":" << s.dicTalentSkill_Ptr << ",";
-                 ss << "\"dicRuneSkill2023_Ptr\":" << s.dicRuneSkill2023_Ptr << ",";
-                 ss << "\"lsMissions_Ptr\":" << s.lsMissions_Ptr << ",";
-                 ss << "\"easterEggMissions_Ptr\":" << s.easterEggMissions_Ptr << ",";
-                 ss << "\"m_lsEmoji_Ptr\":" << s.m_lsEmoji_Ptr << ",";
-                 ss << "\"m_lsAutoEmoji_Ptr\":" << s.m_lsAutoEmoji_Ptr << ",";
-                 ss << "\"m_lsAnima_Ptr\":" << s.m_lsAnima_Ptr << ",";
-                 ss << "\"m_lsGraffiti_Ptr\":" << s.m_lsGraffiti_Ptr << ",";
-                 ss << "\"m_PlayerData_Ptr\":" << s.m_PlayerData_Ptr << ",";
-                 ss << "\"m_ConfigData_Ptr\":" << s.m_ConfigData_Ptr << ",";
-                 ss << "\"m_HeroCostType_Ptr\":" << s.m_HeroCostType_Ptr << ",";
-                 ss << "\"m_BattleConfig_Ptr\":" << s.m_BattleConfig_Ptr << ",";
-                 ss << "\"m_TowerTurnData_Ptr\":" << s.m_TowerTurnData_Ptr << ",";
-                 ss << "\"m_OperateTimeMonitor_Ptr\":" << s.m_OperateTimeMonitor_Ptr << ",";
-                 ss << "\"m_CheckNearComponent_Ptr\":" << s.m_CheckNearComponent_Ptr << ",";
-                 ss << "\"m_EstimateAttrComponent_Ptr\":" << s.m_EstimateAttrComponent_Ptr << ",";
-                 ss << "\"m_StoreSkillComp_Ptr\":" << s.m_StoreSkillComp_Ptr << ",";
-                 ss << "\"m_operCache_Ptr\":" << s.m_operCache_Ptr << ",";
-                 ss << "\"m_HighLightComp_Ptr\":" << s.m_HighLightComp_Ptr << ",";
-                 ss << "\"m_GankShoeRewardComp_Ptr\":" << s.m_GankShoeRewardComp_Ptr << ",";
-                 ss << "\"m_ReqMoveDir_Ptr\":" << s.m_ReqMoveDir_Ptr << ",";
-                 ss << "\"m_ReqMovePos_Ptr\":" << s.m_ReqMovePos_Ptr << ",";
-                 ss << "\"listKillTime_Ptr\":" << s.listKillTime_Ptr << ",";
-                 ss << "\"m_vDelayRemoveSkillIds_Ptr\":" << s.m_vDelayRemoveSkillIds_Ptr << ",";
-                 ss << "\"m_HitHeroTimes_SkillGuid_Ptr\":" << s.m_HitHeroTimes_SkillGuid_Ptr << ",";
-                 ss << "\"m_dStealValue_Ptr\":" << s.m_dStealValue_Ptr << ",";
-                 ss << "\"m_AutoAttackAI_Ptr\":" << s.m_AutoAttackAI_Ptr << ",";
-                 ss << "\"m_LogicPunish_Ptr\":" << s.m_LogicPunish_Ptr << ",";
-                 ss << "\"m_Killer_Ptr\":" << s.m_Killer_Ptr << ",";
-                 ss << "\"m_DevourData_Ptr\":" << s.m_DevourData_Ptr << ",";
-                 ss << "\"m_ControlSummer_Ptr\":" << s.m_ControlSummer_Ptr << ",";
-                 ss << "\"m_vSkillLogicFighter_Ptr\":" << s.m_vSkillLogicFighter_Ptr << ",";
-                 ss << "\"m_vPlayerDeadInfo_Ptr\":" << s.m_vPlayerDeadInfo_Ptr << ",";
-                 ss << "\"m_RecmendEquips_Ptr\":" << s.m_RecmendEquips_Ptr << ",";
-                 ss << "\"m_v2StarDir_Ptr\":" << s.m_v2StarDir_Ptr << ",";
-                 ss << "\"shopData_Ptr\":" << s.shopData_Ptr << ",";
-                 ss << "\"v2LastCheckPos_Ptr\":" << s.v2LastCheckPos_Ptr << ",";
-                 ss << "\"lastCheckMoveDir_Ptr\":" << s.lastCheckMoveDir_Ptr << ",";
-                 ss << "\"lastFailedAutoAiSpellCast_Ptr\":" << s.lastFailedAutoAiSpellCast_Ptr << ",";
-                 ss << "\"ownNormalSkillCache_Ptr\":" << s.ownNormalSkillCache_Ptr << ",";
-                 ss << "\"lEatFruits_Ptr\":" << s.lEatFruits_Ptr << ",";
-
-                 // Basic Info
-                 ss << "\"playerName\":\"" << s.playerName << "\",";
-                 ss << "\"heroId\":" << s.heroId << ",";
-                 ss << "\"m_ID\":" << s.m_ID << ",";
-
-                 // Simple Values
-                 ss << "\"totalGold\":" << s.totalGold << ",";
-                 ss << "\"m_HurtTotalValue\":" << s.m_HurtTotalValue << ",";
-                 ss << "\"m_HurtHeroValue\":" << s.m_HurtHeroValue << ",";
-                 ss << "\"m_ATKHero\":" << s.m_ATKHero << ",";
-                 ss << "\"m_iCommonAttackHeroCount\":" << s.m_iCommonAttackHeroCount << ",";
-                 ss << "\"m_iNormalSkillHeroCount\":" << s.m_iNormalSkillHeroCount << ",";
-                 ss << "\"m_HurtHeroReel\":" << s.m_HurtHeroReel << ",";
-                 ss << "\"m_HurtHeroAD\":" << s.m_HurtHeroAD << ",";
-                 ss << "\"m_HurtHeroAP\":" << s.m_HurtHeroAP << ",";
-                 ss << "\"m_HurtHeroByEquip\":" << s.m_HurtHeroByEquip << ",";
-                 ss << "\"m_HurtHeroByEmblem\":" << s.m_HurtHeroByEmblem << ",";
-                 ss << "\"m_HurtTowerValue\":" << s.m_HurtTowerValue << ",";
-                 ss << "\"m_HurtSoliderValue\":" << s.m_HurtSoliderValue << ",";
-                 ss << "\"m_iInjuredShield\":" << s.m_iInjuredShield << ",";
-                 ss << "\"m_InjuredValue\":" << s.m_InjuredValue << ",";
-                 ss << "\"m_InjuredTower\":" << s.m_InjuredTower << ",";
-                 ss << "\"m_InjuredTotal\":" << s.m_InjuredTotal << ",";
-                 ss << "\"m_InjuredSoldier\":" << s.m_InjuredSoldier << ",";
-                 ss << "\"m_InjuredAD\":" << s.m_InjuredAD << ",";
-                 ss << "\"m_InjuredAP\":" << s.m_InjuredAP << ",";
-                 ss << "\"m_InjuredReal\":" << s.m_InjuredReal << ",";
-                 ss << "\"m_RealInjuredVal\":" << s.m_RealInjuredVal << ",";
-                 ss << "\"m_iBeCuredValue\":" << s.m_iBeCuredValue << ",";
-                 ss << "\"m_CureHero\":" << s.m_CureHero << ",";
-                 ss << "\"m_CureTeammate\":" << s.m_CureTeammate << ",";
-                 ss << "\"m_CureSelf\":" << s.m_CureSelf << ",";
-                 ss << "\"m_CureHeroJustSkill\":" << s.m_CureHeroJustSkill << ",";
-                 ss << "\"m_iSkillUseCount\":" << s.m_iSkillUseCount << ",";
-                 ss << "\"m_iCommonAtkUseCount\":" << s.m_iCommonAtkUseCount << ",";
-                 ss << "\"m_iCommonAtkUseCount_AllSkillCD\":" << s.m_iCommonAtkUseCount_AllSkillCD << ",";
-                 ss << "\"m_iNormalSkillUseCount\":" << s.m_iNormalSkillUseCount << ",";
-                 ss << "\"m_iNormalSkillHasDraggedCount\":" << s.m_iNormalSkillHasDraggedCount << ",";
-                 ss << "\"m_iFirstSkillUseCount\":" << s.m_iFirstSkillUseCount << ",";
-                 ss << "\"m_iSecondSkillUseCount\":" << s.m_iSecondSkillUseCount << ",";
-                 ss << "\"m_iThirdSkillUseCount\":" << s.m_iThirdSkillUseCount << ",";
-                 ss << "\"m_iFourthSkillUseCount\":" << s.m_iFourthSkillUseCount << ",";
-                 ss << "\"m_iEquipSkillUseCount\":" << s.m_iEquipSkillUseCount << ",";
-                 ss << "\"m_iCureSkillUseCount\":" << s.m_iCureSkillUseCount << ",";
-                 ss << "\"m_iBackHomeSkillUseCount\":" << s.m_iBackHomeSkillUseCount << ",";
-                 ss << "\"m_iSummonSkillUseCount\":" << s.m_iSummonSkillUseCount << ",";
-                 ss << "\"m_iHuntSkillUseCount\":" << s.m_iHuntSkillUseCount << ",";
-                 ss << "\"m_iGankSkillUseCount\":" << s.m_iGankSkillUseCount << ",";
-                 ss << "\"m_iKillMageCount\":" << s.m_iKillMageCount << ",";
-                 ss << "\"m_iKillMarksmanCount\":" << s.m_iKillMarksmanCount << ",";
-                 ss << "\"m_iEnterHeroBattleFromGrass\":" << s.m_iEnterHeroBattleFromGrass << ",";
-                 ss << "\"m_iEnterGrassTimes\":" << s.m_iEnterGrassTimes << ",";
-                 ss << "\"KillTowerTimes\":" << s.KillTowerTimes << ",";
-                 ss << "\"KillSoldierTimes\":" << s.KillSoldierTimes << ",";
-                 ss << "\"m_nSavedPositionsStart\":" << s.m_nSavedPositionsStart << ",";
-                 ss << "\"m_nSavedPositionsCount\":" << s.m_nSavedPositionsCount << ",";
-                 ss << "\"m_uLossOfSightTime\":" << s.m_uLossOfSightTime << ",";
-                 ss << "\"sightIdGenerator\":" << s.sightIdGenerator << ",";
-                 ss << "\"continueKill\":" << s.continueKill << ",";
-                 ss << "\"multiKill\":" << s.multiKill << ",";
-                 ss << "\"DoubleKillTimes\":" << s.DoubleKillTimes << ",";
-                 ss << "\"TripleKillTimes\":" << s.TripleKillTimes << ",";
-                 ss << "\"QuadraKillTimes\":" << s.QuadraKillTimes << ",";
-                 ss << "\"PentaKillTimes\":" << s.PentaKillTimes << ",";
-                 ss << "\"greenLightCanUse\":" << s.greenLightCanUse << ",";
-                 ss << "\"greenLightStartTime\":" << s.greenLightStartTime << ",";
-                 ss << "\"greenLightTimeSpan\":" << s.greenLightTimeSpan << ",";
-                 ss << "\"greenLightIgnoreCountDown\":" << s.greenLightIgnoreCountDown << ",";
-                 ss << "\"bMonitoringSoloBreakLane\":" << s.bMonitoringSoloBreakLane << ",";
-                 ss << "\"uMonitoringTowerGuid\":" << s.uMonitoringTowerGuid << ",";
-                 ss << "\"uMonitoringTimeout\":" << s.uMonitoringTimeout << ",";
-                 ss << "\"lastReceiveMoveOptTime\":" << s.lastReceiveMoveOptTime << ",";
-                 ss << "\"moveProtectTime\":" << s.moveProtectTime << ",";
-                 ss << "\"m_bMoveProtectAIState\":" << s.m_bMoveProtectAIState << ",";
-                 ss << "\"uCheckStarLightTaskTimer\":" << s.uCheckStarLightTaskTimer << ",";
-                 ss << "\"uLastGuideSoldier2Tower\":" << s.uLastGuideSoldier2Tower << ",";
-                 ss << "\"m_iGuideSoldier2Tower\":" << s.m_iGuideSoldier2Tower << ",";
-                 ss << "\"m_bIsTwinMain\":" << s.m_bIsTwinMain << ",";
-                 ss << "\"m_bIsTwinControl\":" << s.m_bIsTwinControl << ",";
-                 ss << "\"bMLAIState\":" << s.bMLAIState << ",";
-                 ss << "\"bShowConnectMsg\":" << s.bShowConnectMsg << ",";
-                 ss << "\"m_IsRobotPlayer\":" << s.m_IsRobotPlayer << ",";
-                 ss << "\"m_uiWaitTrunAITime\":" << s.m_uiWaitTrunAITime << ",";
-                 ss << "\"uiQuicklyTrunToAITime\":" << s.uiQuicklyTrunToAITime << ",";
-                 ss << "\"uiNomalTurnAITime\":" << s.uiNomalTurnAITime << ",";
-                 ss << "\"uIgnoreTurnAITime\":" << s.uIgnoreTurnAITime << ",";
-                 ss << "\"iIgnoreOpered\":" << s.iIgnoreOpered << ",";
-                 ss << "\"m_bForceAi\":" << s.m_bForceAi << ",";
-                 ss << "\"m_bWeakNetWork\":" << s.m_bWeakNetWork << ",";
-                 ss << "\"m_uLastTimePlayerOpered\":" << s.m_uLastTimePlayerOpered << ",";
-                 ss << "\"bWaitTurnAI\":" << s.bWaitTurnAI << ",";
-                 ss << "\"uplandRangeDistance\":" << s.uplandRangeDistance << ",";
-                 ss << "\"m_bConnected\":" << s.m_bConnected << ",";
-                 ss << "\"m_uiVoiceParam\":" << s.m_uiVoiceParam << ",";
-                 ss << "\"m_iHolyStatueSkillID\":" << s.m_iHolyStatueSkillID << ",";
-                 ss << "\"m_uHolyStatueID\":" << s.m_uHolyStatueID << ",";
-                 ss << "\"m_uHolyStatueIDIfUsed\":" << s.m_uHolyStatueIDIfUsed << ",";
-                 ss << "\"m_TotalExp\":" << s.m_TotalExp << ",";
-                 ss << "\"m_bGankEquip\":" << s.m_bGankEquip << ",";
-                 ss << "\"m_bHuntSkill\":" << s.m_bHuntSkill << ",";
-                 ss << "\"m_bLowestMoneyOrExp\":" << s.m_bLowestMoneyOrExp << ",";
-                 ss << "\"m_ShareMoneyEx\":" << s.m_ShareMoneyEx << ",";
-                 ss << "\"m_ShareExpEx\":" << s.m_ShareExpEx << ",";
-                 ss << "\"m_RewardMoney\":" << s.m_RewardMoney << ",";
-                 ss << "\"m_iBaseMoney\":" << s.m_iBaseMoney << ",";
-                 ss << "\"m_KillBounty\":" << s.m_KillBounty << ",";
-                 ss << "\"m_bBountyOverThreshold\":" << s.m_bBountyOverThreshold << ",";
-                 ss << "\"m_uLastBountyOverThreshold\":" << s.m_uLastBountyOverThreshold << ",";
-                 ss << "\"m_iContinueDeadSub\":" << s.m_iContinueDeadSub << ",";
-                 ss << "\"m_iContinueKillNum\":" << s.m_iContinueKillNum << ",";
-                 ss << "\"m_iContinueKillAdd\":" << s.m_iContinueKillAdd << ",";
-                 ss << "\"m_RewardExp\":" << s.m_RewardExp << ",";
-                 ss << "\"m_iBaseExp\":" << s.m_iBaseExp << ",";
-                 ss << "\"m_iLevelExp\":" << s.m_iLevelExp << ",";
-                 ss << "\"m_iLvExpRate\":" << s.m_iLvExpRate << ",";
-                 ss << "\"m_fContinueDeadPara\":" << s.m_fContinueDeadPara << ",";
-                 ss << "\"DeadAndKillTimes\":" << s.DeadAndKillTimes << ",";
-                 ss << "\"m_AssistTimesReward\":" << s.m_AssistTimesReward << ",";
-                 ss << "\"m_bReqMoveUpdate\":" << s.m_bReqMoveUpdate << ",";
-                 ss << "\"bDeathHoldKillCount\":" << s.bDeathHoldKillCount << ",";
-                 ss << "\"mShutDown\":" << s.mShutDown << ",";
-                 ss << "\"lastKillTime\":" << s.lastKillTime << ",";
-                 ss << "\"mutiKillUsefulTime\":" << s.mutiKillUsefulTime << ",";
-                 ss << "\"mutiKillUsefulTimeOn5kill\":" << s.mutiKillUsefulTimeOn5kill << ",";
-                 ss << "\"m_uiLastMoveTime\":" << s.m_uiLastMoveTime << ",";
-                 ss << "\"m_GetGoldTimesBySoldier\":" << s.m_GetGoldTimesBySoldier << ",";
-                 ss << "\"m_BeyondGodlike\":" << s.m_BeyondGodlike << ",";
-                 ss << "\"m_MaxMutiKill\":" << s.m_MaxMutiKill << ",";
-                 ss << "\"m_MaxContinueKill\":" << s.m_MaxContinueKill << ",";
-                 ss << "\"m_singleKill\":" << s.m_singleKill << ",";
-                 ss << "\"m_KillLingZhu\":" << s.m_KillLingZhu << ",";
-                 ss << "\"m_AssistLingZhu\":" << s.m_AssistLingZhu << ",";
-                 ss << "\"KillWildTimes\":" << s.KillWildTimes << ",";
-                 ss << "\"m_WeekKill\":" << s.m_WeekKill << ",";
-                 ss << "\"m_KillShenGui\":" << s.m_KillShenGui << ",";
-                 ss << "\"m_AssistShenGui\":" << s.m_AssistShenGui << ",";
-                 ss << "\"m_KillCdMonster\":" << s.m_KillCdMonster << ",";
-                 ss << "\"m_KillAtkMonster\":" << s.m_KillAtkMonster << ",";
-                 ss << "\"m_KillMePlayerCount\":" << s.m_KillMePlayerCount << ",";
-                 ss << "\"m_CurZoneId\":" << s.m_CurZoneId << ",";
-                 ss << "\"m_HurtTurtle\":" << s.m_HurtTurtle << ",";
-                 ss << "\"m_HurtLord\":" << s.m_HurtLord << ",";
-                 ss << "\"m_ShieldCureHero\":" << s.m_ShieldCureHero << ",";
-                 ss << "\"m_ShieldCureSelf\":" << s.m_ShieldCureSelf << ",";
-                 ss << "\"m_ShieldTeammate\":" << s.m_ShieldTeammate << ",";
-                 ss << "\"m_SufferControlTime\":" << s.m_SufferControlTime << ",";
-                 ss << "\"m_SufferSlowTime\":" << s.m_SufferSlowTime << ",";
-                 ss << "\"m_ControlTime\":" << s.m_ControlTime << ",";
-                 ss << "\"m_KillsWithRedAndBlueBuff\":" << s.m_KillsWithRedAndBlueBuff << ",";
-                 ss << "\"m_MoveDis\":" << s.m_MoveDis << ",";
-                 ss << "\"m_MoveDisTickCount\":" << s.m_MoveDisTickCount << ",";
-                 ss << "\"m_MoveCountPrePosX\":" << s.m_MoveCountPrePosX << ",";
-                 ss << "\"m_MoveCountPrePosY\":" << s.m_MoveCountPrePosY << ",";
-                 ss << "\"m_GoldByWild\":" << s.m_GoldByWild << ",";
-                 ss << "\"m_GoldBySoldier\":" << s.m_GoldBySoldier << ",";
-                 ss << "\"m_GoldByHero\":" << s.m_GoldByHero << ",";
-                 ss << "\"iAllHurtVal\":" << s.iAllHurtVal << ",";
-                 ss << "\"m_CrlTimes\":" << s.m_CrlTimes << ",";
-                 ss << "\"m_iPoisonValue\":" << s.m_iPoisonValue << ",";
-                 ss << "\"m_hurtEnemyWild\":" << s.m_hurtEnemyWild << ",";
-                 ss << "\"m_hurtWildValue\":" << s.m_hurtWildValue << ",";
-                 ss << "\"m_TrunSpeed\":" << s.m_TrunSpeed << ",";
-                 ss << "\"m_GreatGuid\":" << s.m_GreatGuid << ",";
-                 ss << "\"m_bRefuseSelectAIType\":" << s.m_bRefuseSelectAIType << ",";
-                 ss << "\"m_uiLastOperFrameTime\":" << s.m_uiLastOperFrameTime << ",";
-                 ss << "\"SummonSkillId\":" << s.SummonSkillId << ",";
-                 ss << "\"m_SummonStartSkillId\":" << s.m_SummonStartSkillId << ",";
-                 ss << "\"m_RankLv\":" << s.m_RankLv << ",";
-                 ss << "\"m_bigRankLv\":" << s.m_bigRankLv << ",";
-                 ss << "\"m_rankStar\":" << s.m_rankStar << ",";
-                 ss << "\"m_rankNum\":" << s.m_rankNum << ",";
-                 ss << "\"m_lastReliveTime\":" << s.m_lastReliveTime << ",";
-                 ss << "\"m_ReviveTimeMs\":" << s.m_ReviveTimeMs << ",";
-                 ss << "\"m_bFastDie\":" << s.m_bFastDie << ",";
-                 ss << "\"m_EatFruit\":" << s.m_EatFruit << ",";
-                 ss << "\"m_KillByFruit\":" << s.m_KillByFruit << ",";
-                 ss << "\"m_GetFruitOnMin\":" << s.m_GetFruitOnMin << ",";
-                 ss << "\"bAllowRelive\":" << s.bAllowRelive << ",";
-                 ss << "\"m_uiRoleLevel\":" << s.m_uiRoleLevel << ",";
-                 ss << "\"m_iAddGoldValue\":" << s.m_iAddGoldValue << ",";
-                 ss << "\"iMaxHurtValue\":" << s.iMaxHurtValue << ",";
-                 ss << "\"m_iSkinId\":" << s.m_iSkinId << ",";
-                 ss << "\"m_iDragonCrystalId\":" << s.m_iDragonCrystalId << ",";
-                 ss << "\"m_uUserMapID\":" << s.m_uUserMapID << ",";
-                 ss << "\"iLastGiveupEquip\":" << s.iLastGiveupEquip << ",";
-                 ss << "\"m_iSurvivalTime\":" << s.m_iSurvivalTime << ",";
-                 ss << "\"m_iChickenRanking\":" << s.m_iChickenRanking << ",";
-                 ss << "\"m_bEmojiBirthday\":" << s.m_bEmojiBirthday << ",";
-                 ss << "\"logAttackSpeed\":" << s.logAttackSpeed << ",";
-                 ss << "\"doAttackSpeed\":" << s.doAttackSpeed << ",";
-                 ss << "\"m_CommATK_RunTimer\":" << s.m_CommATK_RunTimer << ",";
-                 ss << "\"m_dCommATKSingTime_Mod\":" << s.m_dCommATKSingTime_Mod << ",";
-                 ss << "\"m_CommATKSingTime_LastTimer\":" << s.m_CommATKSingTime_LastTimer << ",";
-                 ss << "\"m_dCommATKCD_Mod\":" << s.m_dCommATKCD_Mod << ",";
-                 ss << "\"m_CommATKCD_LastTimer\":" << s.m_CommATKCD_LastTimer << ",";
-                 ss << "\"m_PriorEquip\":" << s.m_PriorEquip << ",";
-                 ss << "\"m_uHeroEnhanceLevel\":" << s.m_uHeroEnhanceLevel << ",";
-                 ss << "\"m_bGhostHasDied\":" << s.m_bGhostHasDied << ",";
-                 ss << "\"lastCheckDirSymbol\":" << s.lastCheckDirSymbol << ",";
-                 ss << "\"right\":" << s.right << ",";
-                 ss << "\"lastFailedAutoAiSpellCastTime\":" << s.lastFailedAutoAiSpellCastTime << ",";
-                 ss << "\"autoTime\":" << s.autoTime << ",";
-                 ss << "\"m_dXpGrowthDecimal\":" << s.m_dXpGrowthDecimal << ",";
-                 ss << "\"bBornedBoss\":" << s.bBornedBoss << ",";
-                 ss << "\"iPreMutiKillValue\":" << s.iPreMutiKillValue << ",";
-                 ss << "\"iPreContinueKillValue\":" << s.iPreContinueKillValue << ",";
-                 ss << "\"iPreKillLingZhu\":" << s.iPreKillLingZhu << ",";
-                 ss << "\"iPreKillShenGui\":" << s.iPreKillShenGui << ",";
-                 ss << "\"iPreShutDown\":" << s.iPreShutDown << ",";
-                 ss << "\"bCheckFirstBlood\":" << s.bCheckFirstBlood << ",";
-                 ss << "\"iCurrentResult\":" << s.iCurrentResult << ",";
-                 ss << "\"iPreGetResultTime\":" << s.iPreGetResultTime << ",";
-                 ss << "\"iCurKilledResult\":" << s.iCurKilledResult << ",";
-                 ss << "\"iPreKilledResultTime\":" << s.iPreKilledResultTime;
-                 ss << "}";
+                 ss << "{\"m_ID\":" << s.m_ID << ",\"totalGold\":" << s.totalGold 
+                    << ",\"_TripleKillTimes\":" << s.TripleKillTimes 
+                    << ",\"_QuadraKillTimes\":" << s.QuadraKillTimes 
+                    << ",\"_PentaKillTimes\":" << s.PentaKillTimes 
+                    << ",\"m_TotalExp\":" << s.m_TotalExp << "}";
                  if (i < g_State.logicPlayers.size() - 1) ss << ",";
              }
-             ss << "]";
-             ss << "},";
+             ss << "]},\"battle_stats\":{\"time\":" << g_elapsedBattleTime.count() 
+                << ",\"m_iCampAKill\":" << g_State.battleStats.m_iCampAKill 
+                << ",\"m_iCampBKill\":" << g_State.battleStats.m_iCampBKill 
+                << ",\"m_CampAGold\":" << g_State.battleStats.m_CampAGold 
+                << ",\"m_CampBGold\":" << g_State.battleStats.m_CampBGold
+                << ",\"m_CampAExp\":" << g_State.battleStats.m_CampAExp
+                << ",\"m_CampBExp\":" << g_State.battleStats.m_CampBExp
+                << ",\"m_CampAKillTower\":" << g_State.battleStats.m_CampAKillTower
+                << ",\"m_CampBKillTower\":" << g_State.battleStats.m_CampBKillTower
+                << ",\"m_CampAKillLingZhu\":" << g_State.battleStats.m_CampAKillLingZhu
+                << ",\"m_CampBKillLingZhu\":" << g_State.battleStats.m_CampBKillLingZhu
+                << ",\"m_CampAKillShenGui\":" << g_State.battleStats.m_CampAKillShenGui
+                << ",\"m_CampBKillShenGui\":" << g_State.battleStats.m_CampBKillShenGui
+                << "}}}";
         }
-
-        // --- 2. Battle Stats (/infobattle & /timebattle) ---
-        {
-             std::lock_guard<std::mutex> lock(g_State.stateMutex);
-             ss << "\"battle_stats\":{";
-             ss << "\"time\":" << g_State.battleStats.gameTime << ",";
-
-             // RAW FIELDS FROM ShowFightDataTiny (as requested)
-             ss << "\"m_levelOnSixMin\":" << g_State.battleStats.m_levelOnSixMin << ",";
-             ss << "\"m_LevelOnTwelveMin\":" << g_State.battleStats.m_LevelOnTwelveMin << ",";
-             ss << "\"m_KillNumCrossTower\":" << g_State.battleStats.m_KillNumCrossTower << ",";
-             ss << "\"m_RevengeKillNum\":" << g_State.battleStats.m_RevengeKillNum << ",";
-             ss << "\"m_ExtremeBackHomeNum\":" << g_State.battleStats.m_ExtremeBackHomeNum << ",";
-             ss << "\"bLockGuidChanged\":" << (g_State.battleStats.bLockGuidChanged ? "true" : "false") << ",";
-             ss << "\"m_BackHomeCount\":" << g_State.battleStats.m_BackHomeCount << ",";
-             ss << "\"m_RecoverSuccessfullyCount\":" << g_State.battleStats.m_RecoverSuccessfullyCount << ",";
-             ss << "\"m_BuyEquipCount\":" << g_State.battleStats.m_BuyEquipCount << ",";
-             ss << "\"m_BuyEquipTime\":" << g_State.battleStats.m_BuyEquipTime << ",";
-             ss << "\"m_uSurvivalCount\":" << g_State.battleStats.m_uSurvivalCount << ",";
-             ss << "\"m_uPlayerCount\":" << g_State.battleStats.m_uPlayerCount << ",";
-             ss << "\"m_iCampAKill\":" << g_State.battleStats.m_iCampAKill << ",";
-             ss << "\"m_iCampBKill\":" << g_State.battleStats.m_iCampBKill << ",";
-             ss << "\"m_CampAGold\":" << g_State.battleStats.m_CampAGold << ",";
-             ss << "\"m_CampBGold\":" << g_State.battleStats.m_CampBGold << ",";
-             ss << "\"m_CampAExp\":" << g_State.battleStats.m_CampAExp << ",";
-             ss << "\"m_CampBExp\":" << g_State.battleStats.m_CampBExp << ",";
-             ss << "\"m_CampAKillTower\":" << g_State.battleStats.m_CampAKillTower << ",";
-             ss << "\"m_CampBKillTower\":" << g_State.battleStats.m_CampBKillTower << ",";
-             ss << "\"m_CampAKillLingZhu\":" << g_State.battleStats.m_CampAKillLingZhu << ",";
-             ss << "\"m_CampBKillLingZhu\":" << g_State.battleStats.m_CampBKillLingZhu << ",";
-             ss << "\"m_CampAKillShenGui\":" << g_State.battleStats.m_CampAKillShenGui << ",";
-             ss << "\"m_CampBKillShenGui\":" << g_State.battleStats.m_CampBKillShenGui << ",";
-             ss << "\"m_CampAKillLingzhuOnSuperior\":" << g_State.battleStats.m_CampAKillLingzhuOnSuperior << ",";
-             ss << "\"m_CampBKillLingzhuOnSuperior\":" << g_State.battleStats.m_CampBKillLingzhuOnSuperior << ",";
-             ss << "\"m_CampASuperiorTime\":" << g_State.battleStats.m_CampASuperiorTime << ",";
-             ss << "\"m_CampBSuperiorTime\":" << g_State.battleStats.m_CampBSuperiorTime << ",";
-             ss << "\"m_iFirstBldTime\":" << g_State.battleStats.m_iFirstBldTime << ",";
-             ss << "\"m_iFirstBldKiller\":" << g_State.battleStats.m_iFirstBldKiller << ",";
-
-             // Individual Player Stats
-             ss << "\"players\":[";
-             for (size_t i = 0; i < g_State.battlePlayers.size(); ++i) {
-                 const auto& bp = g_State.battlePlayers[i];
-                 ss << "{";
-                 ss << "\"uGuid\":" << bp.uGuid << ",";
-                 ss << "\"playerName\":\"" << bp.playerName << "\","; // Uses original name
-                 ss << "\"camp\":" << bp.campType << ",";
-                 ss << "\"kill\":" << bp.kill << ",";
-                 ss << "\"death\":" << bp.death << ",";
-                 ss << "\"assist\":" << bp.assist << ",";
-                 ss << "\"gold\":" << bp.gold << ",";
-                 ss << "\"totalGold\":" << bp.totalGold;
-                 ss << "}";
-                 if (i < g_State.battlePlayers.size() - 1) ss << ",";
-             }
-             ss << "]";
-             ss << "},";
-        }
-
-        // --- 3. Ban Pick (/banpick) ---
-        {
-             std::lock_guard<std::mutex> lock(g_State.stateMutex);
-             ss << "\"ban_pick\":{";
-             ss << "\"is_open\":" << (g_State.banPickState.isOpen ? "true" : "false") << ",";
-             ss << "\"ban_order\":[";
-             for(size_t i=0; i<g_State.banPickState.banOrder.size(); i++) {
-                 ss << g_State.banPickState.banOrder[i];
-                 if(i < g_State.banPickState.banOrder.size() - 1) ss << ",";
-             }
-             ss << "],";
-             ss << "\"pick_order\":[";
-             for(size_t i=0; i<g_State.banPickState.pickOrder.size(); i++) {
-                 ss << g_State.banPickState.pickOrder[i];
-                 if(i < g_State.banPickState.pickOrder.size() - 1) ss << ",";
-             }
-             ss << "]";
-             ss << "}";
-        }
-
-        ss << "}"; // End data
-        ss << "}"; // End JSON
-
-        // Send to Relay Server
         BroadcastData(ss.str());
     }
 }
 
-// Forward declaration
-void UpdateBattleStats(void* logicBattleManager);
-
 void InitGameLogic() {
-    // Resolve UIRankHero.OnUpdate offset dynamically
-    // 0xffffffff9bbe766c was in dump, but offsets change. Use dynamic resolution.
-    void* pUIRankHero_OnUpdate = Il2CppGetMethodOffset(OBFUSCATE("Assembly-CSharp.dll"), OBFUSCATE(""), OBFUSCATE("UIRankHero"), OBFUSCATE("OnUpdate"), 0);
-
-    if (pUIRankHero_OnUpdate) {
-        DobbyHook(pUIRankHero_OnUpdate, (void*)new_UIRankHero_OnUpdate, (void**)&old_UIRankHero_OnUpdate);
-        LOGI("Hooked UIRankHero.OnUpdate at %p", pUIRankHero_OnUpdate);
-    } else {
-        LOGI("Failed to find UIRankHero.OnUpdate");
-    }
+    LoadConfig();
+    LOGI("GameLogic Initialized. Mod Enabled: %s", g_State.isModEnabled ? "true" : "false");
 }

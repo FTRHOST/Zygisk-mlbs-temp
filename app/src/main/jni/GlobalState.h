@@ -261,8 +261,6 @@ struct PlayerBattleData {
 };
 
 struct LogicPlayerStats {
-    std::string playerName;
-    uint32_t heroId;
     int32_t m_ID;
     uintptr_t m_LoigcBezierBullet_Ptr;
     uintptr_t moveControllers_Ptr;
@@ -541,17 +539,7 @@ struct LogicPlayerStats {
     uint32_t iPreKilledResultTime;
 };
 
-// Ban/Pick State
-struct BanPickState {
-    bool isOpen;
-    uint32_t currentPhase; // 0: None, 1: Ban, 2: Pick
-    uint32_t banTime;
-    uint32_t pickTime;
-    std::vector<uint32_t> banOrder; // Hero IDs
-    std::vector<uint32_t> pickOrder; // Hero IDs
-    std::map<uint32_t, uint32_t> banList; // HeroID -> ?
-    std::map<uint32_t, uint32_t> pickList; // HeroID -> ?
-};
+// Ban/Pick State (Removed)
 
 // Global Battle Stats (Expanded with all requested raw fields)
 struct BattleGlobalStats {
@@ -634,12 +622,12 @@ struct GlobalState {
 
     int battleState = 0; // 0: Lobby, 2: Draft, 3: In-Game, 6/7: Loading/Battle
     bool roomInfoEnabled = true;
+    bool isModEnabled = true; // New Switch
 
     // Data Stores
     std::vector<PlayerData> players; // From SystemData.RoomData
     std::vector<PlayerBattleData> battlePlayers; // From BattleData.heroInfoList
     std::vector<LogicPlayerStats> logicPlayers; // From LogicBattleManager (LogicPlayer)
-    BanPickState banPickState;
     BattleGlobalStats battleStats;
 
     // Internal Timers
