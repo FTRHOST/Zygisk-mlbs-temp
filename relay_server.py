@@ -17,7 +17,8 @@ latest_data = {
     "debug": {},
     "room_info": {},
     "ban_pick": {},
-    "battle_stats": {}
+    "battle_stats": {},
+    "events": []
 }
 game_socket = None
 
@@ -86,6 +87,16 @@ def socket_listener():
                     elif parsed.get("type") == "log":
                         print(f"[GAME LOG] {parsed.get('msg')}")
 
+                    elif parsed.get("type") == "event":
+                        print(f"[EVENT] {parsed}")
+                        # Store event
+                        if "events" not in latest_data:
+                            latest_data["events"] = []
+                        latest_data["events"].append(parsed)
+                        # Keep last 100 events
+                        if len(latest_data["events"]) > 100:
+                            latest_data["events"].pop(0)
+
                     # Debug print di terminal HP/Termux
                     state = latest_data.get('debug', {}).get('game_state', 'N/A')
                     print(f"\r[LIVE] State: {state} | Bytes: {len(line)} | BP: {len(latest_data.get('ban_pick', {}))}   ", end="")
@@ -135,6 +146,10 @@ def get_timebattle():
         "lord_countdown": 0, # Placeholder until event logic is fully hooked
         "turtle_countdown": 0
     })
+
+@app.route('/events', methods=['GET'])
+def get_events():
+    return jsonify(latest_data.get("events", []))
 
 @app.route('/api/control', methods=['POST'])
 def control_feature():

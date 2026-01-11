@@ -22,6 +22,7 @@
 #include "IpcServer.h"
 #include "obfuscate.h"
 #include "dobby.h"
+#include "Broadcaster.h"
 
 GlobalState g_State;
 std::chrono::steady_clock::time_point g_battleStartTime;
@@ -749,7 +750,64 @@ void MonitorBattleState() {
     }
 }
 
+// Hook definitions
+void (*old_ISHOW_Change_CampGold)(void* instance, uint32_t campID, uint32_t goldAmount);
+void hook_ISHOW_Change_CampGold(void* instance, uint32_t campID, uint32_t goldAmount) {
+    if (old_ISHOW_Change_CampGold) {
+        old_ISHOW_Change_CampGold(instance, campID, goldAmount);
+    }
+    std::stringstream ss;
+    ss << "{\"camp\": " << campID << ", \"gold\": " << goldAmount << "}";
+    Broadcaster::SendEvent(EVENT_GOLD_UPDATE, ss.str());
+}
+
+void (*old_ISHOW_Change_KillInfo)(void* instance, int32_t campAKill, int32_t campBKill, uint32_t killerId, uint32_t victimId);
+void hook_ISHOW_Change_KillInfo(void* instance, int32_t campAKill, int32_t campBKill, uint32_t killerId, uint32_t victimId) {
+    if (old_ISHOW_Change_KillInfo) {
+        old_ISHOW_Change_KillInfo(instance, campAKill, campBKill, killerId, victimId);
+    }
+    std::stringstream ss;
+    ss << "{\"campA_kill\": " << campAKill << ", \"campB_kill\": " << campBKill << ", \"killer\": " << killerId << ", \"victim\": " << victimId << "}";
+    Broadcaster::SendEvent(EVENT_KILL_UPDATE, ss.str());
+}
+
+void (*old_ReceBanHero)(void* instance, uint32_t heroId, uint64_t lUid, uint32_t iTime, void* data);
+void hook_ReceBanHero(void* instance, uint32_t heroId, uint64_t lUid, uint32_t iTime, void* data) {
+    if (old_ReceBanHero) {
+        old_ReceBanHero(instance, heroId, lUid, iTime, data);
+    }
+    std::stringstream ss;
+    ss << "{\"heroId\": " << heroId << ", \"uid\": " << lUid << ", \"time\": " << iTime << ", \"type\": \"ban\"}";
+    Broadcaster::SendEvent(EVENT_BAN_PICK, ss.str());
+}
+
 void InitGameLogic() {
     LoadConfig();
+
+    // Install hooks
+    void* addrChangeCampGold = Il2CppGetMethodOffset("Assembly-CSharp.dll", "", "BattleData", "ISHOW_Change_CampGold", 2);
+    if (addrChangeCampGold) {
+        DobbyHook(addrChangeCampGold, (void*)hook_ISHOW_Change_CampGold, (void**)&old_ISHOW_Change_CampGold);
+        LOGI("Hooked ISHOW_Change_CampGold at %p", addrChangeCampGold);
+    } else {
+        LOGE("Failed to find ISHOW_Change_CampGold");
+    }
+
+    void* addrChangeKillInfo = Il2CppGetMethodOffset("Assembly-CSharp.dll", "", "BattleData", "ISHOW_Change_KillInfo", 4);
+    if (addrChangeKillInfo) {
+        DobbyHook(addrChangeKillInfo, (void*)hook_ISHOW_Change_KillInfo, (void**)&old_ISHOW_Change_KillInfo);
+        LOGI("Hooked ISHOW_Change_KillInfo at %p", addrChangeKillInfo);
+    } else {
+        LOGE("Failed to find ISHOW_Change_KillInfo");
+    }
+
+    void* addrReceBanHero = Il2CppGetMethodOffset("Assembly-CSharp.dll", "", "UIRankHero", "ReceBanHero", 4);
+    if (addrReceBanHero) {
+        DobbyHook(addrReceBanHero, (void*)hook_ReceBanHero, (void**)&old_ReceBanHero);
+        LOGI("Hooked ReceBanHero at %p", addrReceBanHero);
+    } else {
+        LOGE("Failed to find ReceBanHero");
+    }
+
     LOGI("GameLogic Initialized. Mod Enabled: %s", g_State.isModEnabled ? "true" : "false");
 }

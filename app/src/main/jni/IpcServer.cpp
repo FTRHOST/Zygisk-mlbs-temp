@@ -193,7 +193,7 @@ void StartIpcServer() {
     broadcaster_thread = std::thread(BroadcasterLoop);
     server_thread.detach();
     broadcaster_thread.detach();
-    LOGI("IpcServer Started");
+    LOGI("IpcServer Started (Multi-threaded mode)");
 }
 
 void StopIpcServer() {
